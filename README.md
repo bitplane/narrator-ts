@@ -46,7 +46,10 @@ tools/
     m68k.py            ctypes binding
     amiga.py           hunk loader, allocator, trap plumbing
     execlib.py         a minimal exec.library
+    tasks.py           cooperative tasks, signals and message ports
+    audiodev.py        a fake audio.device that records instead of playing
     translate.py       drive the real translator.library
+    narrator.py        drive the real narrator.device
     disasm.py          annotated disassembly
 research/              findings, with offsets, so claims can be rechecked
 reference/             public-domain source material, checked in
@@ -96,7 +99,7 @@ emulator, so regenerating every version is a matter of seconds.
 | golden corpora | 9,804 training + 5,601 held-out phrases x 6 versions |
 | **TypeScript translator** | **byte-exact against all 6 builds on both corpora** |
 | free NRL-only table | built, checked in, 64.6% word agreement with 33.2 |
-| `narrator.device` under emulation | loads, initialises, registers; needs task scheduling and a fake `audio.device` |
+| `narrator.device` under emulation | **speaking, on all 5 builds** — 1.6 through 37.7 |
 | TypeScript synthesizer | not started |
 
 Only two distinct translator behaviours exist across 1985-1991: 1.3, and
@@ -112,6 +115,17 @@ A sample of what the real library, running here, actually produces:
 'Dr. Smith'            -> 'DAA3KTER SMIH4TH '
 'versatile'            -> 'VERSAETAY3L '
 ```
+
+And the narrator, driven from the same rig:
+
+```sh
+python3 tools/oracle/narrator.py -t 'hello world' -o hello.wav
+# 108 writes, 55296 samples, period 161 -> 22030 Hz, channels [1, 2]
+```
+
+Output is Paula-native — 8-bit signed samples plus the period they were written
+with — because that is what the chip consumes and what the library will take as
+its primitive. `research/02-narrator.md` has the device's side of it.
 
 The last one is wrong, and is supposed to be — a faithful reimplementation has
 to mispronounce it too. Blaming the NRL rules for that would be too easy,

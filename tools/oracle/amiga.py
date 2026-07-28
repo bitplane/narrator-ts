@@ -13,6 +13,7 @@ import struct
 from pathlib import Path
 
 from m68k import Cpu, A0, A1, A6, A7, D0, D1, PC, SR
+from tasks import Scheduler, TC_SIZE
 
 # ---------------------------------------------------------------- memory map
 HEAP_BASE = 0x00001000
@@ -65,7 +66,14 @@ class Machine:
         self.exec_base = 0
         self.libraries = {}
         self.devices = {}
-        self.fake_task = self.alloc(256, 'fake-task')
+        # The host-driven context is a task like any other, with a real Task
+        # struct, so FindTask has something to return and a device that posts
+        # a message back to us resolves to a task the scheduler knows.
+        self.fake_task = self.alloc(TC_SIZE, 'host-task')
+        self.sched = Scheduler(self)
+        self.host_task = self.sched.add_host_task()
+        self.host_task.node = self.fake_task
+        self.ports = {}          # address -> tasks.Port
 
     def install_exec(self):
         """Bring up the fake exec.library and publish it at AbsExecBase."""
@@ -137,6 +145,39 @@ class Machine:
             cpu.set(i, v)
         for i, v in (a or {}).items():
             cpu.set(i, v)
+
+    def chain(self, *addrs):
+        """Run `addrs` in order when the trap returns, then the real caller.
+
+        `tail_call` diverts into one routine; this stacks several, so a handler
+        can regain control *after* an Amiga routine it invoked. DoIO needs
+        exactly that: call the device's BeginIO, then decide whether to wait.
+        """
+        for addr in reversed(addrs):
+            self.tail_call(addr)
+
+    def readable(self, addr):
+        """Is `addr` somewhere the rig may safely peek at, host-side?
+
+        The bad-access counter exists to catch the *Amiga* code reaching
+        outside RAM. A Python-side read through a pointer that turns out to be
+        junk would trip it too and be reported as an emulation fault, which is
+        both wrong and very confusing — so bookkeeping asks first.
+        """
+        return HEAP_BASE <= addr < self.brk
+
+    def port(self, addr):
+        """The Port for a MsgPort address, remembering it on first sight.
+
+        Devices initialise their ports by hand rather than through AddPort —
+        narrator.device 33.2 does it at hunk+0x64 — so a port has to be
+        adopted whenever one turns up rather than only when it is announced.
+        """
+        from tasks import Port
+        p = self.ports.get(addr)
+        if p is None:
+            p = self.ports[addr] = Port(addr, self.sched, self.cpu)
+        return p
 
     # ------------------------------------------------------------- libraries
     def make_library(self, name, vectors, extra_neg=0):
@@ -311,8 +352,13 @@ class Machine:
 
     # ------------------------------------------------------------- execution
     def call(self, addr, d=None, a=None, max_cycles=200_000_000):
-        """Call an Amiga routine and run until it returns to the sentinel."""
+        """Call an Amiga routine on the host task, running until it returns.
+
+        Other tasks run too, whenever this one blocks — a device's server task
+        does all its work in the window where the caller is sitting in WaitIO.
+        """
         cpu = self.cpu
+        self.sched.restore(self.host_task)
         cpu.set(SR, 0x0000)               # user mode, interrupts enabled
         cpu.set(A7, STACK_TOP)
         for i, v in (d or {}).items():
@@ -332,8 +378,13 @@ class Machine:
                 raise err
             if self.unhandled:
                 raise AmigaError(f'jumped into unbound trap {self.unhandled[-1]:#x}')
+            if self.sched.switch_pending:
+                self.sched.switch_pending = False
+                self.sched.switch()
         if not self.finished:
             raise AmigaError(f'routine did not return within {max_cycles} cycles')
+        # Only the host task can reach the sentinel, so it is necessarily the
+        # current one here and D0 below is its own.
         n, first = cpu.bad()
         if n:
             raise AmigaError(f'{n} access(es) outside RAM, first at {first:#x}')
