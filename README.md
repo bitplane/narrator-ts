@@ -1,0 +1,162 @@
+# narrator-ts
+
+A faithful TypeScript reimplementation of the Amiga's speech pair —
+`translator.library` (English text to phonemes) and `narrator.device` (phoneme
+formant synthesis).
+
+Covers every shipped version, selectable at runtime. First target is **33.2**,
+the Amiga 500 / Workbench 1.2-1.3 voice. `narrator.device` 37.7 (Kickstart
+2.04, the Amiga 500 Plus) is a genuine rewrite and becomes a second backend
+behind the same interface, not a parameterisation of the first.
+
+This is a standalone, general-purpose library with no host-application
+knowledge in it. It exposes the device's own interface — raw phoneme input as
+well as English text, and the full parameter set (rate, pitch, sex, mode,
+volume, sample rate) plus the mouth-shape output stream — so that the things
+people actually built on the Amiga narrator, including the singing-voice
+hacks that drive it phoneme-by-phoneme, are expressible.
+
+## Why there is an emulator in here
+
+"Sounds about right" is not a standard a formant synthesizer can be held to.
+So the reference implementation is *the real thing*: `tools/oracle/` loads the
+actual Amiga binaries into a 68000 emulator and runs them, capturing their
+output as golden fixtures the TypeScript is diffed against.
+
+That turns every question about behaviour into a byte-for-byte comparison
+rather than an argument.
+
+The 68k core is [Musashi](https://github.com/kstenerud/Musashi), vendored
+rather than hand-rolled — a subtly wrong CPU would poison every fixture
+without ever announcing itself.
+
+## Layout
+
+```
+tools/
+  extract-devices.py   harvest the Amiga binaries from Workbench disk images
+  make-corpus.py       build the phrase corpus the translator is measured on
+  extract-rules.py     pull the rule tables out of any translator build
+  nrl-diff.py          measure the Amiga table against the published NRL rules
+  gen-nrl-table.py     build the free NRL-only table from the report alone
+  nrl-divergence.ts    measure what that free table costs, against 33.2
+  fetch-musashi.sh     vendor the 68000 core
+  oracle/
+    shim.c             flat memory + trap dispatch around Musashi
+    m68k.py            ctypes binding
+    amiga.py           hunk loader, allocator, trap plumbing
+    execlib.py         a minimal exec.library
+    translate.py       drive the real translator.library
+    disasm.py          annotated disassembly
+research/              findings, with offsets, so claims can be rechecked
+reference/             public-domain source material, checked in
+fixtures/
+  amiga/               the Amiga binaries (not redistributable — see below)
+  corpus/              input phrases (ours, checked in)
+  golden/              reference output from the oracle (regenerated, not checked in)
+src/                   the TypeScript library
+```
+
+## Getting set up
+
+The Amiga binaries are Commodore's and are not in this repository. Extract
+them from a tree of Workbench disk images you already have:
+
+```sh
+python3 tools/extract-devices.py /path/to/workbench-disks -o fixtures/amiga
+```
+
+This walks nested zips, reads OFS/FFS ADFs, and deduplicates by sha256, so it
+finds one file per distinct build rather than one per disk. Across 222
+Workbench images it yields 12: five `narrator.device` and seven
+`translator.library`, spanning 1985 to 1991.
+
+Then build the oracle and regenerate the golden fixtures:
+
+```sh
+npm run oracle:build
+python3 tools/make-corpus.py
+for f in fixtures/amiga/translator_library-*.bin; do
+  v=$(basename "$f" .bin | sed 's/translator_library-//')
+  python3 tools/oracle/translate.py -l "$f" \
+      -f fixtures/corpus/phrases.txt -o "fixtures/golden/translator-$v.jsonl"
+done
+```
+
+Just under 10,000 phrases take about six seconds per version through the
+emulator, so regenerating every version is a matter of seconds.
+
+## Status
+
+| | |
+|---|---|
+| fixture extraction | working — 12 builds found, 1 identified as a corrupt dump |
+| 68k oracle | working, both library conventions |
+| `translator.library` under emulation | working for all 6 good builds, 1.3 through 37.1 |
+| golden corpora | 9,804 training + 5,601 held-out phrases x 6 versions |
+| **TypeScript translator** | **byte-exact against all 6 builds on both corpora** |
+| free NRL-only table | built, checked in, 64.6% word agreement with 33.2 |
+| `narrator.device` under emulation | loads, initialises, registers; needs task scheduling and a fake `audio.device` |
+| TypeScript synthesizer | not started |
+
+Only two distinct translator behaviours exist across 1985-1991: 1.3, and
+31.7 onwards (which includes the V37 rewrite). The single difference is
+whether `-ER`/`-ING` may take a trailing `S`; see `src/translator/engines.ts`.
+
+A sample of what the real library, running here, actually produces:
+
+```
+'hello world'          -> '/HEH4LOW WER4LD '
+'the quick brown fox'  -> 'DHAX KWIH4K BROW4N FAA4KS '
+'1985'                 -> ' WAH4N  NAY4N  EY4T  FAY4V  '
+'Dr. Smith'            -> 'DAA3KTER SMIH4TH '
+'versatile'            -> 'VERSAETAY3L '
+```
+
+The last one is wrong, and is supposed to be — a faithful reimplementation has
+to mispronounce it too. Blaming the NRL rules for that would be too easy,
+though: they give `VERSAETIHL`, and it is a rule SoftVoice *added* that turns
+it into "versa-tile". See `research/03-nrl-provenance.md`.
+
+## Licence position
+
+The code here is MIT. The Amiga binaries are not ours and are gitignored, as
+is everything derived from them by running them — `fixtures/golden/` and
+`data/`. `reference/` is the opposite: material that *can* be redistributed.
+
+**The translator's rule table is mostly public domain, and this is measured
+rather than assumed.** It is the rule set of NRL Report 7948 (Elovitz et al.,
+Naval Research Laboratory, 1976 — a US Government work, not subject to
+copyright in the US), extended by SoftVoice. `tools/nrl-diff.py` reports the
+split; `research/03-nrl-provenance.md` shows the working:
+
+```
+ version  rules  ident  stress  edited  absent  moved  added  NRL-derived
+    33.2    701    212      70      36      11      4    383        45.4%
+```
+
+318 of NRL's 329 rules survive into the Amiga table. What SoftVoice added is
+383 rules — word pronunciations, letter names, degemination — plus stress
+digits, which NRL has no notion of.
+
+**That free table is built and checked in**, at `reference/nrl-table.json`.
+Its class table is rebuilt from the report's own definitions rather than
+lifted from a binary, and agrees with the binary's on every bit the matcher
+reads. Nothing in it comes from Commodore or SoftVoice, and it drops into the
+same engine:
+
+```ts
+import nrl from 'narrator-ts/reference/nrl-table.json' with { type: 'json' }
+translate('hello world', nrl)   // '/HEHLOW WERLD '
+```
+
+It is not byte-compatible with the Amiga and is not meant to be — no stress
+marks, no word rules. Ignoring stress marks, **64.6% of distinct words come
+out phoneme-for-phoneme identical** to 33.2 (`tools/nrl-divergence.ts`); most
+of the rest is two phonemes NRL does not use and doubled consonants it does
+not silence.
+
+**Still open:** `narrator.device`'s formant constants, which none of the above
+touches. Note that the copyright line in every build reads *Mark Barton /
+Joseph Katz* — this was licensed in from SoftVoice, Inc. and Commodore never
+owned it, which is likely why the device vanished from AmigaOS 3.5 onward.

@@ -1,0 +1,21 @@
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Amiga system binaries are Commodore's, not ours to redistribute.
+# Rebuild with: python3 tools/extract-devices.py <workbench-disk-tree> -o fixtures/amiga
+fixtures/amiga/*.bin
+
+# Reference output captured from the 68k oracle. Derived by running the
+# binaries above, so it inherits their licence position. Rebuild with the
+# commands in README.md; the tests report clearly when it is absent.
+fixtures/golden/
+
+# Vendored third-party C source, fetched by tools/fetch-musashi.sh
+vendor/
+build/
+
+# Generated from the Amiga binaries; rebuild with tools/gen-tables.py
+data/
+__pycache__/
+*.pyc
