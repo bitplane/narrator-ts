@@ -120,7 +120,8 @@ and the device's own arrays either side of each stage:
 
 ```sh
 python3 tools/extract-phonemes.py fixtures/amiga/narrator_device-33.2-*.bin \
-    -o fixtures/golden/phonemes-33.2.json
+    -o fixtures/golden/phonemes-33.2.json \
+    --tables fixtures/golden/tables-33.2.json
 python3 tools/extract-rewrite-rules.py fixtures/amiga/narrator_device-33.2-*.bin \
     -o fixtures/golden/rewrite-33.2.json
 python3 tools/capture-parse.py -f fixtures/corpus/frames.txt \
@@ -146,7 +147,7 @@ Both are chosen by a *parameter*, so no corpus of phrases can reach them
 however it is written.
 
 Without those the front-half tests skip rather than fail, which is quiet
-enough to miss — `npx vitest run` should report upwards of 2,600 tests.
+enough to miss — `npx vitest run` should report upwards of 3,200 tests.
 
 Two corpora feed that last pair because they are chosen for different things.
 `frames.txt` picks phrases that reach distinct paths through the *render*

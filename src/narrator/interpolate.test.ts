@@ -2,7 +2,13 @@ import { existsSync, readFileSync } from 'node:fs'
 
 import { describe, expect, it } from 'vitest'
 
-import { fillMarkedRuns, fillZeroRuns } from './interpolate.js'
+import {
+  applyGain,
+  fillMarkedRuns,
+  fillZeroRuns,
+  smooth7,
+  smooth7Weighted,
+} from './interpolate.js'
 
 /**
  * The four zero-run passes and the three marked-run passes of hunk+0x29d8,
@@ -16,6 +22,11 @@ const STAGES = [
   'fixtures/golden/stages-sex1.json',
   'fixtures/golden/stages-mode1.json',
 ]
+
+const TABLES = 'fixtures/golden/tables-33.2.json'
+const gain: number[] | undefined = existsSync(TABLES)
+  ? (JSON.parse(readFileSync(TABLES, 'utf8')) as { amplitudeGain: number[] }).amplitudeGain
+  : undefined
 
 interface Snapshot { stage: string; frames: number[][] | null }
 interface Capture { in: string; opts?: Record<string, number>; stages?: Snapshot[] }
@@ -73,6 +84,28 @@ describe.skipIf(captures.length === 0)('the frame interpolator, against the devi
       // hunk+0x2a4a: bytes 3, 4 and 5, in that order.
       for (const column of [3, 4, 5]) fillMarkedRuns(frames, column)
       expect(Array.from(frames)).toEqual(p[1].frames!.flat())
+    })
+
+    for (const [stage, run, column] of [
+      ['frames/0x2d54-f2', smooth7, 1],
+      ['frames/0x2d86-f3', smooth7Weighted, 2],
+      ['frames/0x2d54-pitch', smooth7, 7],
+    ] as const) {
+      const q = pair(c, stage)
+      if (!q?.[0].frames || !q[1].frames) continue
+      it(`${stage.slice(7)}: ${tag}`, () => {
+        const frames = new Uint8Array(q[0].frames!.flat())
+        run(frames, column)
+        expect(Array.from(frames)).toEqual(q[1].frames!.flat())
+      })
+    }
+
+    const g = pair(c, 'frames/0x2d1c')
+    if (!g?.[0].frames || !g[1].frames || gain === undefined) continue
+    it(`gain curve: ${tag}`, () => {
+      const frames = new Uint8Array(g[0].frames!.flat())
+      applyGain(frames, gain)
+      expect(Array.from(frames)).toEqual(g[1].frames!.flat())
     })
   }
 })

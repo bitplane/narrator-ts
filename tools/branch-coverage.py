@@ -135,6 +135,13 @@ INTERPOLATE = [
     (0x2AB2, '0x2a92 nothing between, step on'),
     (0x2AB6, '0x2a92 fill a run of 0xfe'),
     (0x2A82, '0x2a6a one interpolated frame'),
+    (0x2D6E, '0x2d54 box filter done'),
+    (0x2D76, '0x2d54 one smoothed frame'),
+    (0x2DA2, '0x2d86 triangular filter done'),
+    (0x2DAC, '0x2d86 one smoothed frame'),
+    (0x2D52, '0x2d1c gain curve done'),
+    (0x2D3A, '0x2d1c a marked frame, left alone'),
+    (0x2D3E, '0x2d1c three amplitudes through the curve'),
 ]
 
 ROUTINES = {'durations': DURATIONS, 'frames': FRAMES, 'blend': BLEND,

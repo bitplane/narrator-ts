@@ -75,6 +75,12 @@ BLEND_TABLES = {
     'transitionIn': 0x3906, 'transitionOut': 0x3986,
 }
 
+# Not per-phoneme, so written to their own file. hunk+0x2d1c runs every
+# amplitude in the frame array through this one on the way out: 32 entries,
+# rising 0, 1, 1, 1, ... 25, 28, 31. The amplitudes upstream are therefore on
+# a perceptual scale and this is what turns them into linear ones.
+SHARED_TABLES = {'amplitudeGain': (0x2CFC, 0x20)}
+
 # Bits the code is seen to test, with the offset that tests them. Named only
 # where the surrounding code makes the meaning plain; the rest are recorded by
 # number rather than guessed at.
@@ -118,6 +124,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('binary')
     ap.add_argument('-o', '--out')
+    ap.add_argument('--tables', help='where to write the non-per-phoneme tables')
     args = ap.parse_args()
 
     data = read_hunk(args.binary)
@@ -141,6 +148,11 @@ def main():
     if args.out:
         Path(args.out).write_text(json.dumps(rows, indent=1) + '\n')
         print(f'-> {args.out}')
+
+    if args.tables:
+        shared = {k: list(data[b:b + n]) for k, (b, n) in SHARED_TABLES.items()}
+        Path(args.tables).write_text(json.dumps(shared, indent=1) + '\n')
+        print(f'-> {args.tables}')
 
     print(f'{len(rows)} slots, {sum(1 for r in rows if r["name"])} named')
     for r in rows:
