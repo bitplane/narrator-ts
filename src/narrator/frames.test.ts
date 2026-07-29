@@ -4,11 +4,13 @@ import { describe, expect, it } from 'vitest'
 
 import {
   allocate,
+  blendTransitions,
   compact,
   continuationDurations,
   fill,
   FRAME,
   markFirst,
+  markTransitions,
   type FrameState,
   type Params,
 } from './frames.js'
@@ -60,6 +62,8 @@ const table: Params | undefined = rows && {
   voicing: col('voicing'),
   stressed: rows.map((r) => r.duration?.[0] ?? 0),
   unstressed: rows.map((r) => r.duration?.[1] ?? 0),
+  rank: col('rank'), weight: col('weight'),
+  transitionIn: col('transitionIn'), transitionOut: col('transitionOut'),
 }
 
 /** The second voice's frequencies — hunk+0x50ae, chosen by `sex`. */
@@ -162,6 +166,19 @@ describe.skipIf(!ready)('the frame-array builder, against the device', () => {
       }
       expect(got).toEqual(want.map((f) => f.slice(0, 7)))
     })
+
+    for (const [stage, run] of [
+      ['dur/0x172a', blendTransitions],
+      ['dur/0x17d6', markTransitions],
+    ] as const) {
+      const p = pair(c, stage)
+      if (!p?.[0].frames || !p[1].frames) continue
+      it(`${stage.slice(4)}: ${tag}`, () => {
+        const frames = new Uint8Array(p[0].frames!.flat())
+        run(stateOf(p[0]), attrs!, table!, frames)
+        expect(Array.from(frames)).toEqual(p[1].frames!.flat())
+      })
+    }
 
     const marked = pair(c, 'dur/0x1472')!
     if (!marked[0].frames || !marked[1].frames) continue

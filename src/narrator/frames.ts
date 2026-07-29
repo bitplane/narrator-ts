@@ -33,10 +33,23 @@ export const FRAME = 8
 
 /** Attribute bits this stage tests. */
 const ATTR = {
+  /** Bit 2: a sonorant — the vowels, liquids, glides, nasals and `Z`/`V`/`DH`. */
+  SONORANT: 1 << 2,
   /** Bit 7: this phoneme's duration is split across it and the slot after. */
   SPLIT: 1 << 7,
+  /** Bit 9: voiced. */
+  VOICED: 1 << 9,
+  /** Bits 10 and 11: a voiced or voiceless stop. */
+  VOICED_STOP: 1 << 10,
+  VOICELESS_STOP: 1 << 11,
+  /** Bit 12: a fricative. */
+  FRICATIVE: 1 << 12,
   /** Bit 13. With bit 21, the phoneme takes its noise source from stress. */
   FRICATIVE_SOURCE: 1 << 13,
+  /** Bit 15: `R`, `L`, `RX`, `LX`. */
+  LIQUID: 1 << 15,
+  /** Bit 17: `WH`, `W`, `Y`. */
+  GLIDE: 1 << 17,
   /** Bit 20: not spoken. The space and the two bracket markers. */
   SILENT: 1 << 20,
   /** Bit 21: a continuation slot, which rewrite pass 2 created. */
@@ -75,6 +88,13 @@ export interface Params {
   /** Stressed and unstressed frame counts, for {@link continuationDurations}. */
   stressed: readonly number[]
   unstressed: readonly number[]
+  /** Which of two neighbours wins a boundary — `hunk+0x3a86`. */
+  rank: readonly number[]
+  /** How far the loser is pulled towards the winner, in 1/32nds. */
+  weight: readonly number[]
+  /** Frames spent transitioning in and out. */
+  transitionIn: readonly number[]
+  transitionOut: readonly number[]
 }
 
 /**
@@ -267,6 +287,165 @@ export function fill(
       // Byte 7 is stepped over, not written.
       at += FRAME
     }
+  }
+}
+
+/**
+ * hunk+0x172a. Blend the first frame of each phoneme towards its predecessor.
+ *
+ * Which way the blend runs is decided by a **rank**: whichever of the two
+ * phonemes ranks higher keeps its own shape and the other is pulled towards
+ * it, by the winner's weight in 1/32nds. Punctuation ranks 31 and beats
+ * everything; the vowels rank 2 and lose to nearly everything, which is why a
+ * vowel next to a consonant takes the consonant's shape at the join rather
+ * than the other way round.
+ *
+ * The three frequency bytes are only blended when *both* sides are non-zero —
+ * silence has no formant position to move towards, and interpolating into it
+ * would sweep the formants down to nothing. The amplitudes have no such guard,
+ * so they always cross-fade.
+ */
+export function blendTransitions(state: FrameState, attrs: Attrs, table: Params, frames: Uint8Array): void {
+  const { phonemes, flags } = state
+  let at = 0
+
+  for (let i = 0; ; i++) {
+    at += (flags[i] & DURATION) * FRAME
+    const next = phonemes[i + 1]
+    if (next === TERMINATOR) return
+
+    // 0x1768: no transition into a stop's own release — the burst is supposed
+    // to arrive abruptly, and blending it would file the edge off.
+    const a = attrs[next] ?? 0
+    if (a & ATTR.CONTINUATION && a & 0x2c00) continue
+
+    const here = phonemes[i]
+    const mine = table.rank[here] ?? 0
+    const theirs = table.rank[next] ?? 0
+    // 0x1792: the weight belongs to whichever of the two ranks higher.
+    const w = table.weight[theirs >= mine ? next : here] ?? 0
+
+    for (let k = 0; k < 6; k++) {
+      // `(A6)` is the next phoneme's first frame; `(-8,A6)` is this one's
+      // last. Which is the base and which the target swaps with the rank, but
+      // the write always lands on the next phoneme's first frame.
+      const from = frames[at + k]
+      const to = frames[at - FRAME + k]
+      const base = theirs >= mine ? to : from
+      const other = theirs >= mine ? from : to
+
+      // 0x17ae: bytes 0-2 are frequencies and need both ends real.
+      if (k < 3 && (base === 0 || other === 0)) continue
+
+      const d = ((other - base) << 16) >> 16
+      frames[at + k] = ((d * w >> 5) + base) & 0xff
+    }
+  }
+}
+
+/**
+ * hunk+0x17d6. Mark the head and tail of each phoneme's block as frames for
+ * the renderer's last stage to interpolate across.
+ *
+ * The marker is `0xfe` in the three amplitude bytes with the three frequency
+ * bytes zeroed. `hunk+0x29d8` is what resolves them into the ramps you can see
+ * at the start of any captured frame array.
+ *
+ * How many frames each end gets comes from the two transition tables, and
+ * again the higher-ranked neighbour decides. If the two transitions would not
+ * both fit inside the phoneme they are trimmed a frame at a time, at most
+ * twice, and if they still do not fit the whole phoneme becomes one long
+ * transition instead.
+ */
+export function markTransitions(state: FrameState, attrs: Attrs, table: Params, frames: Uint8Array): void {
+  const { phonemes, flags } = state
+
+  // 0x17fc: phoneme 0's frames are skipped outright — it is the lead-in the
+  // parser seeded and there is nothing before it to transition from.
+  let at = (flags[0] & DURATION) * FRAME
+
+  for (let i = 1; ; i++) {
+    const here = phonemes[i]
+    if (here === TERMINATOR) return
+
+    const prev = phonemes[i - 1]
+    const next = phonemes[i + 1]
+    const duration = flags[i] & DURATION
+    const a = attrs[here] ?? 0
+
+    // 0x1838: stops are left alone. Their frames are the closure and the
+    // burst, and neither is something to ease into.
+    if (a & (ATTR.VOICED_STOP | ATTR.VOICELESS_STOP)) {
+      at += duration * FRAME
+      continue
+    }
+
+    const mine = table.rank[here] ?? 0
+    let head = (table.rank[prev] ?? 0) > mine
+      ? table.transitionIn[prev] ?? 0
+      : table.transitionOut[here] ?? 0
+    let tail = (table.rank[next] ?? 0) >= mine
+      ? table.transitionIn[next] ?? 0
+      : table.transitionOut[here] ?? 0
+
+    // 0x1888: nothing follows the last phoneme, so it has no tail.
+    if (next === TERMINATOR) tail = 0
+
+    // 0x1890: a sonorant keeps its amplitudes through a transition whose other
+    // end is a stop — the marker only blanks the formants there, so the sound
+    // carries across the join instead of dipping to nothing.
+    let keepHead = false
+    let keepTail = false
+    if (a & ATTR.SONORANT) {
+      const pa = attrs[prev] ?? 0
+      let check = false
+      if (pa & (ATTR.VOICED_STOP | ATTR.VOICELESS_STOP)) {
+        keepHead = true
+        check = true
+      } else if (pa & ATTR.FRICATIVE && !(pa & ATTR.VOICED)) {
+        check = true
+      }
+      // 0x18c4: after one of those, a liquid or a glide gets a two-frame head
+      // whatever the table said — the /l/ of "play" and the /r/ of "price".
+      if (check && a & (ATTR.LIQUID | ATTR.GLIDE)) head = 2
+      if ((attrs[next] ?? 0) & (ATTR.VOICED_STOP | ATTR.VOICELESS_STOP)) keepTail = true
+    }
+
+    // 0x18ea onwards. One frame at the head belongs to `blendTransitions` and
+    // is stepped over rather than marked.
+    let span = (duration - 1) & 0xffff
+    head = (head - 1) & 0xff
+    if (head > 0x7f) head = 0
+
+    let middle = 0
+    let shrink = 2
+    for (;;) {
+      if ((((head + tail) & 0xff) << 24) >> 24 < ((span << 24) >> 24)) {
+        middle = (span - head - tail) & 0xff
+        break
+      }
+      head = (head - 1) & 0xff
+      if (head > 0x7f) { head = span; tail = 0; middle = 0; break }
+      tail = (tail - 1) & 0xff
+      if (tail > 0x7f) { head = span; tail = 0; middle = 0; break }
+      if (--shrink === 0) { head = span; tail = 0; middle = 0; break }
+    }
+
+    const mark = (keep: boolean): void => {
+      frames[at] = 0
+      frames[at + 1] = 0
+      frames[at + 2] = 0
+      if (!keep) {
+        frames[at + 3] = 0xfe
+        frames[at + 4] = 0xfe
+        frames[at + 5] = 0xfe
+      }
+    }
+
+    at += FRAME
+    for (let k = 0; k < head; k++) { mark(keepHead); at += FRAME }
+    at += middle * FRAME
+    for (let k = 0; k < tail; k++) { mark(keepTail); at += FRAME }
   }
 }
 

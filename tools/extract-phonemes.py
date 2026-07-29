@@ -61,6 +61,20 @@ PARAM_TABLES = {
 }
 PARAM_TABLES_ALT = {'f1': 0x50AE, 'f2': 0x512E, 'f3': 0x51AE}
 
+# Four more in the same block, read by the two coarticulation routines at the
+# end of hunk+0x1454. They are the SAM tables under different addresses: a
+# blend rank that decides which of two neighbours wins a boundary, a weight
+# for how far the loser is pulled towards it, and the number of frames each
+# phoneme spends transitioning in and out.
+#
+# `.`/`?`/`,`/`-` rank 31 and beat everything; the vowels rank 2 and lose to
+# almost everything, which is why a vowel next to a consonant takes the
+# consonant's shape at the join rather than the other way round.
+BLEND_TABLES = {
+    'rank': 0x3A86, 'weight': 0x3B06,
+    'transitionIn': 0x3906, 'transitionOut': 0x3986,
+}
+
 # Bits the code is seen to test, with the offset that tests them. Named only
 # where the surrounding code makes the meaning plain; the rest are recorded by
 # number rather than guessed at.
@@ -109,6 +123,7 @@ def main():
     data = read_hunk(args.binary)
     nm, at, du = names(data), attrs(data), durations(data)
     pa = params(data, PARAM_TABLES)
+    pa.update(params(data, BLEND_TABLES))
     pa_alt = params(data, PARAM_TABLES_ALT)
 
     rows = []

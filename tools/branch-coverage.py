@@ -79,7 +79,30 @@ FRAMES = [
     (0x147E, '0x1472 mark frame 0'),
 ]
 
-ROUTINES = {'durations': DURATIONS, 'frames': FRAMES}
+# The two coarticulation routines at the end of hunk+0x1454.
+BLEND = [
+    (0x1776, '0x172a skip a stop release'),
+    (0x17A8, '0x172a the next phoneme ranks higher'),
+    (0x17A0, '0x172a this phoneme ranks higher'),
+    (0x17BC, '0x172a blend a byte'),
+    (0x17D2, '0x172a leave a frequency alone, one end is silent'),
+    (0x1840, '0x17d6 skip a stop'),
+    (0x1856, '0x17d6 nothing follows, no tail'),
+    (0x1864, '0x17d6 head from the previous phoneme'),
+    (0x186E, '0x17d6 head from this one'),
+    (0x1880, '0x17d6 tail from the next phoneme'),
+    (0x1878, '0x17d6 tail from this one'),
+    (0x18B2, '0x17d6 keep amplitudes, a stop before'),
+    (0x18B8, '0x17d6 a voiceless fricative before'),
+    (0x18D0, '0x17d6 a liquid or glide gets two frames'),
+    (0x18E6, '0x17d6 keep amplitudes, a stop after'),
+    (0x1900, '0x17d6 trim both transitions to fit'),
+    (0x1966, '0x17d6 they still do not fit: all transition'),
+    (0x1926, '0x17d6 mark a head frame with amplitudes'),
+    (0x1952, '0x17d6 mark a tail frame with amplitudes'),
+]
+
+ROUTINES = {'durations': DURATIONS, 'frames': FRAMES, 'blend': BLEND}
 
 
 def run(device, phrase, opts, marks, steps, counts):

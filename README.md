@@ -156,6 +156,9 @@ python3 tools/branch-coverage.py -r durations \
     -f fixtures/corpus/frames.txt -f fixtures/corpus/stages.txt
 ```
 
+`-r` also takes `frames` and `blend`, for the two halves of the frame-array
+builder.
+
 That counts the device's own visits to each decision point in a routine. A
 port can match every fixture and still be wrong down a branch the fixtures
 never take — the stress spreader passed 27 of 30 captures with a real bug in

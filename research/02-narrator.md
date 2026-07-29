@@ -793,6 +793,50 @@ whose duration is 0 in both tables, crashes the device when it is the only
 phoneme in an utterance. The other two crashing phonemes are `LX` and `RX`,
 and `RX` is the one `0x1492` gives a special case to.
 
+### Coarticulation, and where the SAM lineage shows
+
+At this point every phoneme is a block of identical frames. The last two
+sub-routines are what bend them into each other, and they use four more
+0x80-byte tables from the same block — which are, name for name, the tables
+SAM has:
+
+| table | | |
+|---|---|---|
+| `0x3a86` | blend rank | which of two neighbours wins a boundary |
+| `0x3b06` | blend weight | how far the loser is pulled towards it, in 1/32nds |
+| `0x3906` | transition in | frames spent easing in |
+| `0x3986` | transition out | frames spent easing out |
+
+`0x172a` blends the first frame of each phoneme across the join. The ranks
+decide the direction: punctuation ranks 31 and beats everything, `Z` ranks 20,
+the vowels rank 2 and lose to nearly everything. So a vowel next to a
+consonant takes the consonant's shape at the join, not the other way round —
+which is the right way round for speech, because consonant place is what the
+ear reads and vowels are what bends around it.
+
+The three frequency bytes are only blended when both sides are non-zero.
+Silence has no formant position, and interpolating towards it would sweep the
+formants to nothing instead of just fading. The amplitudes have no such guard
+and always cross-fade. A stop's release is exempt from the whole thing: the
+burst is supposed to arrive abruptly.
+
+`0x17d6` then marks the head and tail of each block as frames for `0x29d8` to
+interpolate across — `0xfe` in the three amplitude bytes, zero in the three
+frequency bytes. Lengths come from the two transition tables, again with the
+higher-ranked neighbour deciding, and if the two ends will not both fit inside
+the phoneme they are trimmed a frame at a time, at most twice; if they still
+do not fit, the whole phoneme becomes one long transition.
+
+Two special cases in it are worth naming. A sonorant whose neighbour is a stop
+**keeps its amplitudes** through the transition — only the formants are
+blanked — so the sound carries across the join instead of dipping to silence.
+And a liquid or glide after a stop or a voiceless fricative gets a two-frame
+head whatever the table said, which is the /l/ of "play" and the /r/ of
+"price".
+
+Stops are skipped by both routines. Their frames are a closure and a burst,
+and neither is something to ease into.
+
 ### Durations are assigned by `hunk+0x1be8`, into the flag array
 
 The main durations are set two stages earlier, and they are written into the
