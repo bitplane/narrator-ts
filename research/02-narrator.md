@@ -245,10 +245,145 @@ from the top when the task next runs, so its context is captured *before* the
 trap's RTS. A handler that has finished and merely wants to give up the CPU is
 captured after. Confusing the two either loses the call or repeats it.
 
+## The synthesis pipeline
+
+22KB of undocumented code is slow to read statically, so most of what follows
+was found by **differential coverage**: the shim counts executions per address
+(`Cpu.cover`), and a routine that runs for `AA4` but not `AA`, or vanishes when
+`mode=1`, has named itself. Static reading then confirms what it does. Where a
+claim below is inference rather than something checked against the running
+device, it says so.
+
+### Command dispatch
+
+`BeginIO` is a jump table, not a chain of compares:
+
+```
+00036e  move.w ($1c,A1), D0      ; io_Command
+000372  ble    $600              ; <= 0  -> error
+000376  cmpi.w #$8, D0
+00037a  bgt    $600              ; > 8   -> error
+00037e  lsl.w  #2, D0
+000380  lea    $69a.l, A0        ; the table
+000386  movea.l (A0,D0.w), A0
+00038a  jsr    (A0)
+```
+
+| command | handler |
+|---|---|
+| 1 `CMD_RESET` | `hunk+0x4e6` |
+| 2 `CMD_READ` | `hunk+0x1ae` — the mouth-shape read |
+| 3 `CMD_WRITE` | `hunk+0x290` — speak |
+| 4 `CMD_UPDATE`, 5 `CMD_CLEAR` | `hunk+0x60c` (shared; a no-op returning success) |
+| 6 `CMD_STOP` | `hunk+0x4a8` |
+| 7 `CMD_START` | `hunk+0x46c` |
+| 8 `CMD_FLUSH` | `hunk+0x510` |
+
+`CMD_WRITE` opens by walking the device's request list at `devbase+0x36` for a
+queued `CMD_READ` on the same unit and completing it — which is how the
+mouth-shape stream is fed. It brackets that with `$dff09a` (INTENA) writes and
+the `IDNestCnt` byte in ExecBase, i.e. Forbid/Disable inlined rather than
+called.
+
+### Which stage is which
+
+`A5` is the per-unit workspace — the `0x30c` bytes `MakeLibrary` was asked for.
+84 distinct offsets into it are referenced. Grouping routines by what changes
+their execution count:
+
+| routines | responds to | so it is |
+|---|---|---|
+| `0xf68`, `0x112c`, `0x11bc`, `0x12d8` | input length and content | phoneme parsing |
+| `0x1412`, `0x21b8`, `0x220c`, `0x230c`, `0x23ce` | **only** a stress digit | stress handling |
+| `0x25f8`, `0x2642`, `0x2864` | drop to **zero** when `mode=1` | natural-mode intonation |
+| `0x2bc6` | 76 → 191 when a `.` or `?` is added | sentence-final contour |
+| `0x2a6a`, `0x2a92`, `0x2aba`, `0x2d1c`, `0x2d54`, `0x2d86` | length, everything | frame generation |
+| `0x52b4`–`0x57da` | output sample count | rendering and audio |
+
+Two results worth stating plainly, because they shape the port:
+
+**`rate`, `pitch`, `sampfreq` and `volume` change no branch at all** — coverage
+is identical, instruction for instruction, at both extremes of each. They are
+scalars into the same code.
+
+**`sex` very nearly doesn't either**: `0x778` moves 91 → 93 and `0x15e0` by 3.
+It is a parameter, not a separate voice.
+
+### The renderer
+
+The inner loop, at `hunk+0x548a`, is three formants summed through two tables:
+
+```
+005494  move.w D1, D5           ; F1 phase
+005496  lsr.w  #4, D5
+005498  move.w D3, D6           ; F1 amplitude
+00549a  or.b   (A0,D5.w), D6    ; A0 = waveform, 64 entries
+00549e  move.b (A1,D6.w), D7    ; A1 = amplitude x waveform -> sample
+0054a2  move.l D2, D5           ; F2 and F3 phases, packed in one longword
+0054a4  lsr.l  #4, D5
+0054a6  andi.w #$fff, D5
+0054aa  move.l D4, D6           ; F2 and F3 amplitudes, likewise packed
+0054ac  or.b   (A0,D5.w), D6
+0054b0  add.b  (A1,D6.w), D7
+0054b4  swap   D5               ; the other half of each
+0054b6  swap   D6
+0054b8  or.b   (A0,D5.w), D6
+0054bc  add.b  (A1,D6.w), D7
+0054c0  move.b D7, (A3)+
+0054c2  move.b D7, (A3)+        ; twice
+```
+
+with the phases advanced and wrapped as a pair:
+
+```
+005518  move.l #$3ff03ff, D7
+00551e  add.w  ($0,A5), D1      ; F1 increment
+005524  add.l  ($2,A5), D2      ; F2 and F3 increments, together
+00552a  and.w  D7, D1           ; wrap to 10 bits
+00552c  and.l  D7, D2
+005534  adda.l #$40, A0         ; every 9 samples (11 if A5+0x26 is 0)
+```
+
+So: **three formants, 10-bit phase accumulators, a 64-entry waveform table
+that is stepped forward 64 bytes at a time as the frame progresses**, and a
+second table indexed by amplitude-and-waveform that does the multiply. For the
+default voice `A0` starts at `hunk+0x4aae` and `A1` at `hunk+0x3106`.
+
+**Voiced samples are computed at half the output rate and written twice.**
+That is the `move.b D7,(A3)+` pair above, and it is not an inference:
+
+| input | non-silent sample pairs | `s[2i] == s[2i+1]` |
+|---|---:|---:|
+| `AA4`, `IY4` | 3184, 2648 | **100.0%** |
+| `S`, `SH`, `F` | 1171, 1110, 931 | 9.7%, 16.9%, 17.3% |
+| `AA4S` | 4231 | 63.6% |
+
+The unvoiced path is a different loop at `hunk+0x5610`, and it writes **once**
+per iteration (`0054...` → `005648  move.b D7,(A3)+`). It adds a third table
+`A4`, indexed by a counter at `A5+0x10` — the noise source — and tests bit 31
+of the packed amplitude longword to decide whether to *also* sum a voiced
+formant, which is what a voiced fricative needs.
+
+So the device runs its voiced synthesis at roughly 11 kHz and its unvoiced at
+roughly 22 kHz, whatever `sampfreq` says. Any port that computes every sample
+at the output rate will not be sample-exact, and will not sound the same
+either: the duplication is audible as the characteristic grain.
+
 ## Still open
 
-- The synthesis pipeline: `hunk+0x36e` onwards, ~22KB. Nothing here touches it.
-- The mouth-shape stream (`mouth_rb`), whose width/height nibbles are at
-  `hunk+0x5798`. Not yet captured by the rig at all.
+The pipeline above is mapped, not finished. What a sample-exact port still
+needs:
+
+- **The frame format.** The renderer walks `A6` through an array, taking one
+  byte to `A5+3`, one to `A5+5`, skipping three, one to `A5+0xe` (the
+  voiced/unvoiced selector) and one to `A5+0xc`. The stride and the meaning of
+  the skipped bytes are not yet established.
+- **The tables themselves.** `A0` at `hunk+0x4aae` and `A1` at `hunk+0x3106`
+  are located but not dumped or understood; likewise the eight `0x1e0`-byte
+  blocks from `hunk+0x3bae` that `CMD_WRITE` sets up at `A5+0xa2`.
+- **How phonemes become frames** — the duration model, and how `rate` and
+  stress scale it. The routines are identified; their contents are not.
+- **The mouth-shape stream** (`mouth_rb`), whose width/height nibbles are at
+  `hunk+0x5798`. `CMD_READ` is the other half and the rig does not issue one.
 - Whether the parameter sweep's one-axis-at-a-time grid hides anything. A
   difference that needs two extremes at once would not show up.

@@ -34,8 +34,42 @@ static int g_stop;
 static uint32_t g_bad_addr;
 static int g_bad_count;
 
+/* Execution coverage: one counter per even address, over a window the host
+ * chooses. 22KB of undocumented synthesis code is a lot to read statically,
+ * and "which of it ran for input X, and not for input Y" narrows it fast.
+ * Saturating so a hot inner loop cannot wrap and read as cold. */
+static uint16_t *g_cov;
+static uint32_t g_cov_base, g_cov_end;
+
+void oracle_cover(uint32_t base, uint32_t end)
+{
+    free(g_cov);
+    g_cov = NULL;
+    g_cov_base = base;
+    g_cov_end = end;
+    if (end > base)
+        g_cov = calloc((end - base) / 2 + 1, sizeof *g_cov);
+}
+
+void oracle_cover_reset(void)
+{
+    if (g_cov)
+        memset(g_cov, 0, ((g_cov_end - g_cov_base) / 2 + 1) * sizeof *g_cov);
+}
+
+void oracle_cover_read(uint16_t *dst, uint32_t n)
+{
+    if (g_cov)
+        memcpy(dst, g_cov, n * sizeof *g_cov);
+}
+
 void oracle_instr_hook(unsigned int pc)
 {
+    if (g_cov && pc >= g_cov_base && pc < g_cov_end) {
+        uint16_t *slot = &g_cov[(pc - g_cov_base) / 2];
+        if (*slot != 0xFFFF)
+            (*slot)++;
+    }
     if (pc >= g_trap_base && pc < g_trap_end && g_trap_cb) {
         g_trap_cb(pc);
         if (g_stop)

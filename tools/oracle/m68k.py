@@ -48,6 +48,9 @@ class Cpu:
         L.oracle_bad_addr.restype = ctypes.c_uint32
         L.oracle_disassemble.argtypes = [ctypes.c_char_p, ctypes.c_uint32]
         L.oracle_disassemble.restype = ctypes.c_int
+        L.oracle_cover.argtypes = [ctypes.c_uint32, ctypes.c_uint32]
+        L.oracle_cover_read.argtypes = [ctypes.POINTER(ctypes.c_uint16),
+                                        ctypes.c_uint32]
 
     # ---- memory ----
     def write(self, addr, data):
@@ -120,6 +123,25 @@ class Cpu:
 
     def clear_bad(self):
         self.lib.oracle_clear_bad()
+
+    # ---- coverage ----
+    def cover(self, base, end):
+        """Count executions of every even address in [base, end)."""
+        self._cov_range = (base, end)
+        self.lib.oracle_cover(base, end)
+
+    def cover_reset(self):
+        self.lib.oracle_cover_reset()
+
+    def coverage(self):
+        """{address: times executed} for everything that ran."""
+        base, end = getattr(self, '_cov_range', (0, 0))
+        n = (end - base) // 2 + 1
+        if n <= 1:
+            return {}
+        buf = (ctypes.c_uint16 * n)()
+        self.lib.oracle_cover_read(buf, n)
+        return {base + 2 * i: buf[i] for i in range(n) if buf[i]}
 
     def disasm(self, pc):
         buf = ctypes.create_string_buffer(256)

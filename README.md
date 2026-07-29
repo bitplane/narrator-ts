@@ -43,6 +43,7 @@ tools/
   probe-phonemes.py    discover a narrator build's phoneme set by asking it
   make-narrator-corpus.py  build the phoneme corpus from that inventory
   narrator-survey.py   how many distinct synthesizers are there really
+  narrator-coverage.py attribute the device's code by watching which of it runs
   fetch-musashi.sh     vendor the 68000 core
   oracle/
     shim.c             flat memory + trap dispatch around Musashi
@@ -116,6 +117,7 @@ the full 4,865-phrase corpus is 45 seconds per build.
 | free NRL-only table | built, checked in, 64.6% word agreement with 33.2 |
 | `narrator.device` under emulation | **speaking, on all 5 builds** — 1.6 through 37.7 |
 | narrator corpus | 4,865 phrases; **two synthesizers across 5 builds**, measured |
+| narrator pipeline | mapped — dispatch, stages, renderer; frame format still open |
 | TypeScript synthesizer | not started |
 
 Only two distinct translator behaviours exist across 1985-1991: 1.3, and
