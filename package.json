@@ -1,11 +1,33 @@
 {
   "name": "narrator-ts",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "TypeScript reimplementation of the Amiga narrator.device and translator.library",
   "type": "module",
   "license": "MIT",
+  "author": "Gareth Davidson <gaz@bitplane.net>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bitplane/narrator-ts.git"
+  },
+  "bugs": "https://github.com/bitplane/narrator-ts/issues",
+  "homepage": "https://github.com/bitplane/narrator-ts#readme",
+  "keywords": [
+    "amiga",
+    "speech-synthesis",
+    "text-to-speech",
+    "tts",
+    "narrator",
+    "translator",
+    "formant",
+    "phonemes",
+    "retrocomputing"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "prepublishOnly": "npm run build && npm test",
     "test": "vitest run",
     "test:watch": "vitest",
     "say": "vite-node tools/say.ts --",
@@ -27,11 +49,14 @@
       "types": "./dist/translator/index.d.ts",
       "default": "./dist/translator/index.js"
     },
-    "./reference/nrl-table.json": "./reference/nrl-table.json"
+    "./reference/nrl-table.json": "./reference/nrl-table.json",
+    "./reference/voice-free.json": "./reference/voice-free.json",
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",
     "reference",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ]
 }

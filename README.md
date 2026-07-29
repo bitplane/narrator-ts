@@ -7,13 +7,23 @@ Output is Paula-native — 8-bit signed samples and the period they were written
 with. Verified against the real binaries running under a 68000 emulator:
 byte-exact translation on 15,405 phrases, sample-exact synthesis end to end.
 
+```sh
+npm install narrator-ts
+```
+
 ```ts
 import { speak } from 'narrator-ts'
 import { translate } from 'narrator-ts/translator'
+import rules from 'narrator-ts/reference/nrl-table.json' with { type: 'json' }
+import voice from 'narrator-ts/reference/voice-free.json' with { type: 'json' }
 
-const { phonemes } = translate('hello world', rules)   // '/HEH4LOW WER4LD '
+const { phonemes } = translate('hello world', rules)   // '/HEHLOW WERLD '
 const { pcm, sampleRate } = speak(Buffer.from(phonemes, 'latin1'), voice)
+// Int8Array(26112) at 22030 Hz
 ```
+
+Both tables are the free ones, so that runs with nothing else installed. Swap
+either for an extracted Amiga table to get the authentic voice — see below.
 
 `pcm` is 8-bit signed. `speak` takes `narrator_rb`'s own parameters —
 `pitch`, `rate`, `sex`, `mode`, `sampfreq`, `mouths` — and returns one entry
