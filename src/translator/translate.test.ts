@@ -14,6 +14,7 @@ import type { TranslatorTables } from './types.js'
  */
 const DATA = 'data'
 const GOLDEN = 'fixtures/golden'
+const BINARIES = 'fixtures/amiga'
 
 function versions(): string[] {
   if (!existsSync(DATA)) return []
@@ -39,7 +40,18 @@ function casesFrom(file: string): Case[] {
 
 const found = versions()
 
-describe('translator tables', () => {
+/**
+ * Whether the Amiga binaries are here at all. They are gitignored, so a fresh
+ * clone and CI have none, and there is nothing for the checks below to be
+ * checked against — that is expected, not a failure. Having the binaries and
+ * *no* generated tables is a different thing: it means a step was skipped, and
+ * silently testing nothing is exactly what this guard exists to prevent.
+ */
+const haveBinaries =
+  existsSync(BINARIES) &&
+  readdirSync(BINARIES).some((f) => f.startsWith('translator_library-') && f.endsWith('.bin'))
+
+describe.skipIf(!haveBinaries)('translator tables', () => {
   it('has generated tables to test against', () => {
     expect(
       found.length,

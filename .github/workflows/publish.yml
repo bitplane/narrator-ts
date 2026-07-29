@@ -1,0 +1,46 @@
+name: Publish
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Required for npm provenance: the job signs an attestation tying the
+      # published tarball to this repository, commit and workflow.
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - run: npm ci
+
+      # Publishing v0.1.1 from a tree that says 0.1.0 is the mistake this
+      # catches, and it is unrecoverable afterwards: a version number cannot
+      # be reused once it has been on the registry.
+      - name: Tag must match package.json
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(node -p "require('./package.json').version")"
+          if [ "$tag" != "$pkg" ]; then
+            echo "tag v$tag does not match package.json $pkg" >&2
+            exit 1
+          fi
+
+      - run: npx tsc --noEmit
+      - run: npm run build
+      - run: npm test
+
+      # prepublishOnly builds and tests again; that is deliberate. The steps
+      # above are there so a failure says which one, rather than dying inside
+      # a publish.
+      - run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
