@@ -986,6 +986,62 @@ vowels the other way round, so "beat" sits above "bat" on the same intended
 note. Taking it from F1 rather than from a table of its own gets that for
 free, and gets it right for the interpolated frames between phonemes too.
 
+### The prosody pass: how the tune gets decided
+
+`hunk+0x1ee0` is the driver's loop test, and it is the last stage of the front
+half. Everything before it works phoneme by phoneme; this works **syllable by
+syllable, one phrase at a time**, and the driver alternates it with
+`hunk+0x2160` until it reports no phrase left.
+
+It is five `bsr`s that **share `D4`** — the syllable count — in a register.
+None of the last four sets it up, so they are one routine split five ways:
+
+| | |
+|---|---|
+| `0x1f02` | `arr4`: one descriptor per syllable |
+| `0x1fd8` | `arr3`: where the phrase breaks are; moves the cursors on |
+| `0x20bc` | `arr5`: bit 0 on every syllable |
+| `0x20d0` | `arr5`: 4 for a `.`, 8 for a `?` |
+| `0x210a` | `arr3`: the cadence |
+
+A syllable is a phoneme the stress spreader marked. Its level comes from the
+digit the writer typed, **scaled by 199/128** — so a `4` becomes 6 — with a
+further 2 inside a spread, and anything above 4 counts as a primary stress.
+That scaling is the one place the digits 0-9 stop being a rank and become a
+number the synthesizer does arithmetic with.
+
+Two of the eight `A5+0x5c`..`0x78` pointers matter here: they are cursors into
+the eight arrays, and `0x2160` advances **all eight together** by the syllable
+count once it has consumed a phrase. So phrase two of an utterance writes
+where phrase one left off, and a routine here indexes from the cursor rather
+than from zero.
+
+### Two things in the prosody pass that cannot happen
+
+Both were found by measuring the device's own branches, and both are dead by
+construction rather than for want of a test case.
+
+**The marker-shuffling pass at `0x2082`..`0x20a8` can never run.** It walks to
+the nearest primary stress and moves a phrase marker onto it — backwards for
+one marker, forwards for another — so a break lands on the syllable it belongs
+to. But the two markers come from bits 4 and 5 of the **flag** byte, and
+nothing in 33.2 ever sets them: the parser zeroes the array, the rewrite
+engine zeroes what it inserts, and the stress spreader writes only `0x80` and
+`0x40`. Every flag byte reaching this stage across the whole corpus is one of
+0, 0x40, 0x80 or 0xc0.
+
+**The question intonation never fires.** `0x2136` selects a rising cadence
+(`0x30` instead of `0xb0`) when `arr5[n-1]` is 8, and 8 is exactly what
+`0x20d0` writes for a `?`. It cannot be reached, for two independent reasons.
+`0x210a` returns at its second instruction when the phrase ended on a `.` or a
+`?` — which is the only way that 8 gets written. And `0x20bc` has already put
+bit 0 into every entry, so the value is 9 rather than 8 in any case.
+
+So 33.2 has a rising contour in it, addressed and reachable-looking, that no
+input can select. A question is spoken with the same falling cadence as a
+statement. Both are ported as written rather than "fixed": the device does not
+do it, so neither does the port.
+
 ## Still open
 
 - **How phonemes become frames.** Two gaps left, both with an oracle already

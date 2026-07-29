@@ -65,6 +65,24 @@ SUBSTAGES = [
     (0x1466, 'dur/0x1472'),
     (0x146A, 'dur/0x172a'),
     (0x146E, 'dur/0x17d6'),
+    # hunk+0x1ee0 is the pitch loop's test, and calls five routines of its
+    # own. It runs once per syllable, so these repeat -- a capture holds one
+    # set per iteration, in order.
+    (0x1EE8, 'pitch/0x1f02'),
+    (0x1EF0, 'pitch/0x1fd8'),
+    (0x1EF4, 'pitch/0x20bc'),
+    (0x1EF8, 'pitch/0x20d0'),
+    (0x1EFC, 'pitch/0x210a'),
+    # hunk+0x2160, the loop's body, is a driver of seven more. `mode` skips
+    # all of them and a phrase with no stress in it skips the first four, so
+    # 0x219e and 0x21aa are branch targets as well as return addresses.
+    (0x2192, 'body/0x21b8'),
+    (0x2196, 'body/0x220c'),
+    (0x219A, 'body/0x230c'),
+    (0x219E, 'body/0x23ce'),
+    (0x21A2, 'body/0x25f8'),
+    (0x21A6, 'body/0x2642'),
+    (0x21AA, 'body/0x2864'),
     # hunk+0x19bc is two calls in a row: the contour codes, then the pitch
     # and period pass that reads them.
     (0x19BE, 'contour/0x19c4'),
@@ -140,6 +158,9 @@ def capture(device, phrase, opts, steps, sub=False):
             'flags': list(cpu.read(a5 + FLAGS, take)),
             'params': [list(cpu.read(a5 + b, PARAM_LEN)) for b in PARAMS],
             'scalars': list(cpu.read(a5 + SCALARS[0], SCALARS[1])),
+            # Several scalars are pointers into the workspace, so the base is
+            # needed to read them as indices.
+            'a5': a5,
             'frames': frames(),
         })
 

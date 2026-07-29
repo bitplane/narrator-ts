@@ -152,8 +152,41 @@ INTERPOLATE = [
     (0x2E32, '0x2dca no adjustment'),
 ]
 
+# The five routines hunk+0x1ee0 calls: the prosody pass.
+PROSODY = [
+    (0x1F42, '0x1f02 a boundary'),
+    (0x1F56, '0x1f02   a space, carry on'),
+    (0x1F5A, '0x1f02 unmarked, skip'),
+    (0x1F68, '0x1f02 a stressed syllable'),
+    (0x1F6E, '0x1f02   walk on for the digit'),
+    (0x1F84, '0x1f02   +2 inside a spread'),
+    (0x1F8C, '0x1f02   a primary stress'),
+    (0x1F9C, '0x1f02   the first one'),
+    (0x1FBA, '0x1f02 overflow, give up'),
+    (0x1FC0, '0x1f02 end of phrase'),
+    (0x1FCC, '0x1f02   with no stress in it'),
+    (0x2008, '0x1fd8 a dash'),
+    (0x205A, '0x1fd8 stop at a phrase break'),
+    (0x2054, '0x1fd8 stop at the terminator'),
+    (0x2022, '0x1fd8 a marked syllable'),
+    (0x202A, '0x1fd8 flag bit 5'),
+    (0x2038, '0x1fd8 flag bit 4'),
+    (0x204C, '0x1fd8   mark it 0x0e'),
+    (0x2082, '0x1fd8 0x0e: seek backwards'),
+    (0x208E, '0x1fd8 2: seek forwards'),
+    (0x20A2, '0x1fd8   found nothing, clear it'),
+    (0x20A8, '0x1fd8   found one, move the marker'),
+    (0x20E8, '0x20d0 ended on a full stop'),
+    (0x20F2, '0x20d0 ended on a question mark'),
+    (0x215E, '0x210a nothing to do'),
+    (0x2136, '0x210a a question rises'),
+    (0x213A, '0x210a the cadence'),
+    (0x2152, '0x210a mark the last primary stress'),
+]
+
 ROUTINES = {'durations': DURATIONS, 'frames': FRAMES, 'blend': BLEND,
-            'contour': CONTOUR, 'pitch': PITCH, 'interpolate': INTERPOLATE}
+            'contour': CONTOUR, 'pitch': PITCH, 'interpolate': INTERPOLATE,
+            'prosody': PROSODY}
 
 
 def run(device, phrase, opts, marks, steps, counts):

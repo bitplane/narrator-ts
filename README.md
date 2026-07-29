@@ -147,7 +147,7 @@ Both are chosen by a *parameter*, so no corpus of phrases can reach them
 however it is written.
 
 Without those the front-half tests skip rather than fail, which is quiet
-enough to miss — `npx vitest run` should report upwards of 3,200 tests.
+enough to miss — `npx vitest run` should report upwards of 4,700 tests.
 
 Two corpora feed that last pair because they are chosen for different things.
 `frames.txt` picks phrases that reach distinct paths through the *render*
@@ -162,7 +162,7 @@ python3 tools/branch-coverage.py -r durations \
 
 `-r` also takes `frames` and `blend` for the two halves of the frame-array
 builder, `contour` and `pitch` for the two halves of `hunk+0x19bc`, and
-`interpolate`.
+`interpolate`, and `prosody`.
 
 That counts the device's own visits to each decision point in a routine. A
 port can match every fixture and still be wrong down a branch the fixtures
