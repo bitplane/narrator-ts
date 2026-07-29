@@ -1053,41 +1053,15 @@ than "fixed": the device does not do it, so neither does the port.
 
 ## Still open
 
-- **How phonemes become frames.** Two gaps left, both with an oracle already
-  in place and both broken into sub-routines that `capture-stages.py --sub`
-  breaks after, so they can be taken one at a time.
-
-  `hunk+0x2160`, the pitch loop's **body**, is a driver of seven routines and
-  is what turns the syllable descriptions into the actual pitch values in
-  `arr0`, `arr1` and `arr2`. Its own frame is read: `mode` skips all seven, a
-  phrase with no primary stress skips the first four, and it ends by advancing
-  the eight array cursors by the syllable count. The first of the seven,
-  `0x21b8`, is done — it is **declination**, the peak pitch of a phrase's
-  first stressed syllable, built from how many phrases have been spoken and
-  how many boundaries crossed rather than from anything about the syllable,
-  and clamped to 125..165. So the sixth phrase of a paragraph starts lower
-  than the first.
-
-  Six left: `0x220c`, `0x230c`, `0x23ce`, `0x25f8`, `0x2642` and `0x2864`,
-  about 1,600 bytes with the last two doing the bulk. Registers flow *between*
-  them — `0x2160` loads five counters into `D3`..`D7`, `0x21b8` leaves its
-  result in `D0` and rewrites `D7` as `(boundaries + 4) / 3`, and `0x220c`
-  reads both — so they have to be ported in order with the registers threaded,
-  the way `prosody.ts` already threads `D4`.
-
-  And **three of `0x29d8`'s nine**: `0x2bc6`, which re-marks a few frames and
-  clears a voicing byte; `0x2ae0`, which changes nothing on any captured
-  utterance and so needs an input that provokes it before it can be checked;
-  and `0x2e80`, the mouth-shape stream, which needs a `CMD_READ` the rig does
-  not issue.
+- **`narrator.device` 37.7**, the rewrite, as a second backend behind the same
+  interface. Nothing of it has been read.
 - **What the attribute bits mean.** 102 longwords, and the parser only tests
-  four of them (0, 25, 26, 27). The rest are read by the stages above and are
-  recorded by number rather than guessed at — several are clearly phonetic
-  features (bit 15 on exactly R/L/RX/LX, bit 16 on exactly M/N/NX/NH, bit 12
-  on the fricatives) but "clearly" is not the standard here.
-- **The byte table at `hunk+0x30a0`**, 96 bytes between the attribute table
-  and the renderer's amplitude table, in nibble-pair-looking values.
-- **The mouth-shape stream** (`mouth_rb`), whose width/height nibbles are at
-  `hunk+0x5798`. `CMD_READ` is the other half and the rig does not issue one.
+  four of them (0, 25, 26, 27). The rest are read by the stages above, and
+  most now have a name earned by what reads them rather than by inspection —
+  bit 0 a vowel, 1 a consonant, 2 a sonorant, 9 voiced, 10/11 voiced and
+  voiceless stops, 12 a fricative, 15 the liquids, 16 the nasals, 17 the
+  glides, 20 not spoken, 21 a continuation, 25 ends a phrase, 26 a boundary.
+  Bits 3, 5 and 6 are vowel frontness and rounding, used to pick a stop's
+  burst. The rest are still numbers.
 - Whether the parameter sweep's one-axis-at-a-time grid hides anything. A
   difference that needs two extremes at once would not show up.

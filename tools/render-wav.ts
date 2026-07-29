@@ -2,27 +2,76 @@
  * Render captured frames to WAV with the TypeScript renderer, so it can be
  * listened to rather than only diffed.
  *
- * The port cannot yet go from text to audio on its own — the stage that turns
- * phonemes into frames is not written — so this takes the frames the real
- * device produced (`tools/capture-frames.py`) and runs only our back half over
- * them. That is still a real test of the renderer: everything you hear after
- * the frame array is ours.
+ * By default it takes the frames the real device produced
+ * (`tools/capture-frames.py`) and runs only our back half over them, which
+ * isolates the renderer. `--speak` instead builds the frame array from the
+ * phoneme string with `synthesize()`, so everything you hear is ours from the
+ * text down — and it says whether the two frame arrays agree.
  *
  * With `--both` it writes the device's own PCM alongside, from the same
- * capture, so the two can be compared by ear as well as by byte.
+ * capture, so they can be compared by ear as well as by byte.
  *
  *   npx vite-node tools/render-wav.ts -- -o /tmp/out            # all captures
  *   npx vite-node tools/render-wav.ts -- -o /tmp/out --both -p J
+ *   npx vite-node tools/render-wav.ts -- -o /tmp/out --speak --both
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { render } from '../src/narrator/render.js'
+import { synthesize, type Voice } from '../src/narrator/speak.js'
 
 const FRAMES = 'fixtures/golden/frames.json'
+const TABLE = 'fixtures/golden/phonemes-33.2.json'
+const TABLES = 'fixtures/golden/tables-33.2.json'
+const RULES = 'fixtures/golden/rewrite-33.2.json'
+
+interface Row {
+  name: string
+  attrs: number | null
+  duration: number[] | null
+  params: Record<string, number> | null
+  paramsAlt: Record<string, number> | null
+}
+
+/**
+ * The device's own tables, which the library takes as an argument rather than
+ * shipping — they are Commodore's. Everything here is a build product of
+ * `extract-phonemes.py` and `extract-rewrite-rules.py`.
+ */
+function loadVoice(): Voice {
+  const rows = JSON.parse(readFileSync(TABLE, 'utf8')) as Row[]
+  const gain = (JSON.parse(readFileSync(TABLES, 'utf8')) as { amplitudeGain: number[] })
+    .amplitudeGain
+  const rules = JSON.parse(readFileSync(RULES, 'utf8')) as
+    Record<'allophones' | 'frames', { rules: unknown[] }>
+  const col = (k: string): number[] => rows.map((r) => r.params?.[k] ?? 0)
+  return {
+    table: { names: rows.map((r) => r.name), attrs: rows.map((r) => r.attrs ?? 0) },
+    attrs: rows.filter((r) => r.attrs !== null).map((r) => r.attrs as number),
+    params: {
+      f1: col('f1'), f2: col('f2'), f3: col('f3'),
+      a1: col('a1'), a2: col('a2'), a3: col('a3'),
+      voicing: col('voicing'),
+      stressed: rows.map((r) => r.duration?.[0] ?? 0),
+      unstressed: rows.map((r) => r.duration?.[1] ?? 0),
+      rank: col('rank'), weight: col('weight'),
+      transitionIn: col('transitionIn'), transitionOut: col('transitionOut'),
+      mouth: col('mouth'),
+    },
+    altParams: {
+      f1: rows.map((r) => r.paramsAlt?.f1 ?? 0),
+      f2: rows.map((r) => r.paramsAlt?.f2 ?? 0),
+      f3: rows.map((r) => r.paramsAlt?.f3 ?? 0),
+    },
+    gain,
+    rules: [rules.allophones.rules, rules.frames.rules] as Voice['rules'],
+  }
+}
 
 interface Capture {
   in: string
+  params?: Record<string, number>
   frames: number[][]
   periodCount: number
   waveStep: number
@@ -73,6 +122,7 @@ function main(): void {
   const outDir = arg('-o') ?? arg('--out')
   const only = arg('-p') ?? arg('--phrase')
   const both = argv.includes('--both')
+  const speak = argv.includes('--speak')
 
   if (!outDir) {
     console.error('usage: render-wav.ts -o <dir> [-p <phrase>] [--both]')
@@ -91,10 +141,23 @@ function main(): void {
     process.exit(1)
   }
   mkdirSync(outDir, { recursive: true })
+  const voice = speak ? loadVoice() : undefined
 
   for (const c of wanted) {
     const rate = Math.round(PAL_CLOCK / c.period)
-    const ours = render(Uint8Array.from(c.frames.flat()), {
+    let input = Uint8Array.from(c.frames.flat())
+    let built = ''
+    if (voice) {
+      const latin1 = Uint8Array.from([...c.in].map((ch) => ch.charCodeAt(0) & 0xff))
+      const out = synthesize(latin1, voice, {
+        pitch: c.params?.pitch, mode: c.params?.mode, sex: c.params?.sex,
+      })
+      const same = out.frames.length >= input.length &&
+        input.every((v, i) => v === out.frames[i])
+      built = same ? '  [frames match]' : '  [FRAMES DIFFER]'
+      input = out.frames
+    }
+    const ours = render(input, {
       wave: Uint8Array.from(c.wave),
       ampTable: Uint8Array.from(c.ampTable),
       periodCount: c.periodCount,
@@ -113,7 +176,7 @@ function main(): void {
     }
     console.log(
       `${name}.wav  ${ours.length} samples at ${rate} Hz` +
-      `  ${(ours.length / rate).toFixed(2)}s${note}`,
+      `  ${(ours.length / rate).toFixed(2)}s${built}${note}`,
     )
   }
   console.log(`\n-> ${outDir}`)

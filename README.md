@@ -51,7 +51,7 @@ tools/
   capture-stages.py    dump the arrays after every front-half stage
   trace-stages.py      diff the workspace across stages, to attribute bytes
   branch-coverage.py   count the device's visits to each branch of a routine
-  render-wav.ts        render captured frames to WAV with the TypeScript
+  render-wav.ts        render to WAV with the TypeScript, from frames or text
   trace-render.py      single-step the device, logging pitch pulses and frames
   fetch-musashi.sh     vendor the 68000 core
   oracle/
@@ -268,6 +268,17 @@ marks, no word rules. Ignoring stress marks, **64.6% of distinct words come
 out phoneme-for-phoneme identical** to 33.2 (`tools/nrl-divergence.ts`); most
 of the rest is two phonemes NRL does not use and doubled consonants it does
 not silence.
+
+To hear it:
+
+```
+npx vite-node tools/render-wav.ts -- -o /tmp/out --speak --both
+```
+
+`--speak` builds the frame array from the phoneme string rather than using the
+device's, so everything you hear is the TypeScript from the text down;
+`--both` writes the device's own PCM beside each file. All 30 come out
+identical, frame array and samples alike.
 
 **Still open:** `narrator.device` 37.7, the second backend; and the fact that
 the tables are still a *parameter*. `synthesize()` takes the phoneme table,
