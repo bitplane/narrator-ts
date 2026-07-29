@@ -70,6 +70,11 @@ PARAM_TABLES_ALT = {'f1': 0x50AE, 'f2': 0x512E, 'f3': 0x51AE}
 # `.`/`?`/`,`/`-` rank 31 and beat everything; the vowels rank 2 and lose to
 # almost everything, which is why a vowel next to a consonant takes the
 # consonant's shape at the join rather than the other way round.
+# And one more, read only when narrator_rb.mouths is set: hunk+0x16dc looks
+# the phoneme up here and writes the byte into the lip-sync stream, once per
+# frame. Low nibble a width, high nibble a height.
+MOUTH_TABLE = {'mouth': 0x30A0}
+
 BLEND_TABLES = {
     'rank': 0x3A86, 'weight': 0x3B06,
     'transitionIn': 0x3906, 'transitionOut': 0x3986,
@@ -131,6 +136,7 @@ def main():
     nm, at, du = names(data), attrs(data), durations(data)
     pa = params(data, PARAM_TABLES)
     pa.update(params(data, BLEND_TABLES))
+    pa.update(params(data, MOUTH_TABLE))
     pa_alt = params(data, PARAM_TABLES_ALT)
 
     rows = []

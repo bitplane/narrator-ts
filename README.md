@@ -150,7 +150,7 @@ of formant frequencies and `mode` replaces the pitch contour with a flat one.
 phrases can reach them however it is written.
 
 Without those the front-half tests skip rather than fail, which is quiet
-enough to miss — `npx vitest run` should report upwards of 4,700 tests.
+enough to miss — `npx vitest run` should report upwards of 7,500 tests.
 
 Two corpora feed that last pair because they are chosen for different things.
 `frames.txt` picks phrases that reach distinct paths through the *render*
@@ -189,7 +189,12 @@ it — so a stage is not done until this says the corpus drives it.
 | **TypeScript phoneme parser** | **byte-exact**, 30 utterances + 50 edge cases |
 | **TypeScript rewrite engine** | **byte-exact**, both allophonic passes, 30 utterances |
 | **TypeScript stress spreader** | **byte-exact**, 30 utterances |
-| TypeScript synthesizer | intonation and durations not started |
+| **TypeScript intonation** | **byte-exact** — declination, cadence, coarticulated F0 |
+| **TypeScript durations** | **byte-exact**, all sixteen scaling rules |
+| **TypeScript frame builder** | **byte-exact**, all seven sub-routines |
+| **TypeScript interpolator** | **byte-exact**, all nine sub-routines |
+| **the front half, end to end** | **byte-exact frame array on 238 utterances** |
+| **text to samples** | **sample-exact on all 30 captures, from the string** |
 
 Only two distinct translator behaviours exist across 1985-1991: 1.3, and
 31.7 onwards (which includes the V37 rewrite). The single difference is
@@ -264,7 +269,10 @@ out phoneme-for-phoneme identical** to 33.2 (`tools/nrl-divergence.ts`); most
 of the rest is two phonemes NRL does not use and doubled consonants it does
 not silence.
 
-**Still open:** `narrator.device`'s formant constants, which none of the above
-touches. Note that the copyright line in every build reads *Mark Barton /
+**Still open:** `narrator.device` 37.7, the second backend; and the fact that
+the tables are still a *parameter*. `synthesize()` takes the phoneme table,
+the attribute flags, the formant parameters, the gain curve and the two
+rewrite rule sets from its caller and ships none of them, because they are
+Commodore's and this repository does not redistribute them. Note that the copyright line in every build reads *Mark Barton /
 Joseph Katz* — this was licensed in from SoftVoice, Inc. and Commodore never
 owned it, which is likely why the device vanished from AmigaOS 3.5 onward.

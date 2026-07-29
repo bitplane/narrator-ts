@@ -95,6 +95,11 @@ export interface Params {
   /** Frames spent transitioning in and out. */
   transitionIn: readonly number[]
   transitionOut: readonly number[]
+  /**
+   * A mouth shape per phoneme — `hunk+0x30a0`, low nibble a width and high
+   * nibble a height. Only read when `narrator_rb.mouths` is set.
+   */
+  mouth: readonly number[]
 }
 
 /**
@@ -224,11 +229,14 @@ export function fill(
   table: Params,
   frames: Uint8Array,
   alt?: Pick<Params, 'f1' | 'f2' | 'f3'>,
+  mouths?: Uint8Array,
 ): void {
   const { phonemes, stress, flags } = state
   const freq = alt ?? table
 
   let at = 0
+  /** A4, which steps once per frame and only when `mouths` was asked for. */
+  let mouthAt = 0
   for (let i = 0; ; i++) {
     const p = phonemes[i]
     if (p === TERMINATOR) {
@@ -275,8 +283,14 @@ export function fill(
     // rather than none. That is not defensive programming missing — it is why
     // `NH`, whose duration is 0 in both tables, crashes the device when it is
     // the only phoneme in an utterance.
+    // 0x16d4: the lip-sync stream, one byte per frame, and looked up by the
+    // phoneme itself rather than by `src` — so a pause holds the *formants*
+    // of what came before it but shows that pause's own mouth shape.
+    const shape = table.mouth[p] ?? 0
+
     const n = duration === 0 ? 0x10000 : duration
     for (let k = 0; k < n; k++) {
+      if (mouths) mouths[mouthAt++] = shape
       frames[at] = freq.f1[src] ?? 0
       frames[at + 1] = freq.f2[src] ?? 0
       frames[at + 2] = freq.f3[src] ?? 0

@@ -28,7 +28,11 @@ import {
  * frequency table however it is written — that branch is chosen by a
  * parameter, so covering it takes a second run rather than a longer corpus.
  */
-const STAGES = ['fixtures/golden/stages.json', 'fixtures/golden/stages-sex1.json']
+const STAGES = [
+  'fixtures/golden/stages.json',
+  'fixtures/golden/stages-sex1.json',
+  'fixtures/golden/stages-mouths.json',
+]
 const TABLE = 'fixtures/golden/phonemes-33.2.json'
 
 interface Snapshot {
@@ -38,6 +42,7 @@ interface Snapshot {
   stress: number[]
   flags: number[]
   frames: number[][] | null
+  mouths: number[] | null
 }
 interface Capture { in: string; opts?: Record<string, number>; stages?: Snapshot[] }
 interface Row {
@@ -64,6 +69,7 @@ const table: Params | undefined = rows && {
   unstressed: rows.map((r) => r.duration?.[1] ?? 0),
   rank: col('rank'), weight: col('weight'),
   transitionIn: col('transitionIn'), transitionOut: col('transitionOut'),
+  mouth: col('mouth'),
 }
 
 /** The second voice's frequencies — hunk+0x50ae, chosen by `sex`. */
@@ -166,6 +172,17 @@ describe.skipIf(!ready)('the frame-array builder, against the device', () => {
       }
       expect(got).toEqual(want.map((f) => f.slice(0, 7)))
     })
+
+    // The lip-sync stream, which the same loop writes when it was asked for.
+    if (filled[1].mouths) {
+      it(`mouth shapes: ${tag}`, () => {
+        const state = stateOf(filled[0])
+        const { frames, total } = allocate(state)
+        const mouths = new Uint8Array(total)
+        fill(state, attrs!, table!, frames, undefined, mouths)
+        expect(Array.from(mouths)).toEqual(filled[1].mouths)
+      })
+    }
 
     for (const [stage, run] of [
       ['dur/0x172a', blendTransitions],
