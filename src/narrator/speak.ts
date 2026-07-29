@@ -41,7 +41,7 @@ import {
   smoothMouths,
 } from './interpolate.js'
 import { markOnsets } from './onset.js'
-import { MAX_PHONEMES, parse, TERMINATOR, type PhonemeTable } from './parse.js'
+import { MAX_PHONEMES, parse, TERMINATOR, type Parsed, type PhonemeTable } from './parse.js'
 import { nextPhrase, pitchLoopBody, type ProsodyState } from './prosody.js'
 import { rewrite, type Attrs, type Rule } from './rewrite.js'
 import { spreadStress } from './stress.js'
@@ -77,6 +77,8 @@ export interface SpeakOptions {
 export interface Speech {
   /** Eight bytes per frame, with one terminator frame past the end. */
   frames: Uint8Array
+  /** Input bytes this sentence took — see {@link Parsed.consumed}. */
+  consumed: number
   /** Frames written, terminator excluded — the device's `A5+0x3a`. */
   total: number
   /**
@@ -108,14 +110,20 @@ const LEAD_IN = 2
 /**
  * Turn a phoneme string into frames, exactly as `CMD_WRITE` does.
  *
+ * **One sentence per call.** The parser stops at the first `.` or `?` and
+ * reports how much of the input it took; `hunk+0x8ba` loops on that, speaking
+ * each sentence as a separate buffer. {@link synthesize} is that loop, and
+ * this is one turn of it — which is what a caller wants only if it is doing
+ * the looping itself.
+ *
  * `input` is bytes rather than a string because the device works in Latin-1
  * and reads one byte past what it was given.
  */
-export function synthesize(
+export function synthesizeSentence(
   input: Uint8Array,
   voice: Voice,
   opts: SpeakOptions = {},
-): Speech {
+): Speech | null {
   const { attrs, params } = voice
   const pitch = opts.pitch ?? 110
   const mode = opts.mode ?? 0
@@ -125,6 +133,12 @@ export function synthesize(
   if (parsed.error !== undefined) {
     throw new SpeakError(`not a phoneme at character ${parsed.error}`, parsed.error)
   }
+  // 0x804: the parser's `Z` exit — it found the lead-in and nothing else.
+  // The driver treats that as the end of the whole utterance and not as an
+  // empty sentence to skip, so trailing whitespace speaks nothing at all
+  // rather than a stray frame or two of it.
+  if (parsed.count === 0) return null
+
   const { phonemes, stress, flags } = parsed
   const state = { phonemes, stress, flags, count: parsed.count }
 
@@ -191,7 +205,40 @@ export function synthesize(
   nasalise(phonemes, flags, attrs, params, frames)
   if (mouths) smoothMouths(mouths, total)
 
-  return { frames, total, mouths }
+  return { frames, total, mouths, consumed: parsed.consumed }
+}
+
+/**
+ * Everything a string has to say, one buffer per sentence.
+ *
+ * `hunk+0x7e6` to `hunk+0x8bc` — the driver's outer loop. It runs the whole
+ * pipeline, hands the frames to `audio.device`, and comes back for whatever
+ * the parser did not take, until the parser reports nothing left.
+ *
+ * The buffers are kept apart rather than joined because the device keeps them
+ * apart: every one is a separate `CMD_WRITE` to the audio hardware, and the
+ * renderer's waveform pointer and pitch phase start again at each. Joining
+ * the frames and rendering once would give different samples.
+ */
+export function synthesize(
+  input: Uint8Array,
+  voice: Voice,
+  opts: SpeakOptions = {},
+): Speech[] {
+  const out: Speech[] = []
+  let at = 0
+  // 0x7e6: advance by what the last pass took, and go again.
+  while (at < input.length) {
+    const speech = synthesizeSentence(input.subarray(at), voice, opts)
+    // Nothing left worth speaking, however many bytes remain.
+    if (speech === null) break
+    // A pass that took nothing would loop forever; the device cannot reach
+    // it, because a parse that consumed nothing found nothing.
+    if (speech.consumed === 0) break
+    at += speech.consumed
+    out.push(speech)
+  }
+  return out
 }
 
 /**

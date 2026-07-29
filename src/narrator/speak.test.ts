@@ -2,8 +2,9 @@ import { existsSync, readFileSync } from 'node:fs'
 
 import { describe, expect, it } from 'vitest'
 
-import { FRAME_BYTES, render, type RenderTables } from './render.js'
-import { synthesize, type Voice } from './speak.js'
+import { FRAME_BYTES, render } from './render.js'
+import { synthesize, synthesizeSentence, type Voice } from './speak.js'
+import { audioPeriod, renderTables, voiceFrom, type VoiceData } from './voice.js'
 
 /**
  * The whole front half, against the device's own frame array.
@@ -24,61 +25,28 @@ const STAGES = [
   'fixtures/golden/stages-mode1.json',
   'fixtures/golden/stages-mouths.json',
 ]
-const TABLE = 'fixtures/golden/phonemes-33.2.json'
-const TABLES = 'fixtures/golden/tables-33.2.json'
-const RULES = 'fixtures/golden/rewrite-33.2.json'
-const RENDER = 'fixtures/golden/frames.json'
+const RENDER = [
+  'fixtures/golden/frames.json',
+  'fixtures/golden/frames-params.json',
+  'fixtures/golden/frames-sentences.json',
+]
+const VOICE = 'data/narrator-33.2.json'
 
-interface Row {
-  index: number
-  name: string
-  attrs: number | null
-  duration: number[] | null
-  params: Record<string, number> | null
-  paramsAlt: Record<string, number> | null
-}
 interface Snapshot { stage: string; frames: number[][] | null; mouths: number[] | null }
 interface Capture { in: string; opts?: Record<string, number>; ok?: boolean; stages?: Snapshot[] }
 
 const read = <T,>(path: string): T | undefined =>
   existsSync(path) ? (JSON.parse(readFileSync(path, 'utf8')) as T) : undefined
 
-const rows = read<Row[]>(TABLE)
-const gain = read<{ amplitudeGain: number[] }>(TABLES)?.amplitudeGain
-const rules = read<Record<'allophones' | 'frames', { rules: unknown[] }>>(RULES)
 const captures: Capture[] = STAGES.flatMap((f) => read<Capture[]>(f) ?? [])
 
-const col = (k: string): number[] => rows!.map((r) => r.params?.[k] ?? 0)
-
-const voice: Voice | undefined =
-  rows && gain && rules
-    ? {
-        table: {
-          // `parse` matches two-character names first, so it wants the raw
-          // table in index order exactly as the device holds it.
-          names: rows.map((r) => r.name),
-          attrs: rows.map((r) => r.attrs ?? 0),
-        },
-        attrs: rows.filter((r) => r.attrs !== null).map((r) => r.attrs as number),
-        params: {
-          f1: col('f1'), f2: col('f2'), f3: col('f3'),
-          a1: col('a1'), a2: col('a2'), a3: col('a3'),
-          voicing: col('voicing'),
-          stressed: rows.map((r) => r.duration?.[0] ?? 0),
-          unstressed: rows.map((r) => r.duration?.[1] ?? 0),
-          rank: col('rank'), weight: col('weight'),
-          transitionIn: col('transitionIn'), transitionOut: col('transitionOut'),
-          mouth: col('mouth'),
-        },
-        altParams: {
-          f1: rows.map((r) => r.paramsAlt?.f1 ?? 0),
-          f2: rows.map((r) => r.paramsAlt?.f2 ?? 0),
-          f3: rows.map((r) => r.paramsAlt?.f3 ?? 0),
-        },
-        gain,
-        rules: [rules.allophones.rules, rules.frames.rules] as Voice['rules'],
-      }
-    : undefined
+/**
+ * The tables come through `gen-voice.py` and `voiceFrom`, which is the path a
+ * caller takes — so this checks that what the extractor writes is enough to
+ * speak with, not just that the stages agree when hand-fed.
+ */
+const data = read<VoiceData>(VOICE)
+const voice: Voice | undefined = data && voiceFrom(data)
 
 const latin1 = (s: string): Uint8Array =>
   Uint8Array.from([...s].map((c) => c.charCodeAt(0) & 0xff))
@@ -97,19 +65,20 @@ describe.skipIf(!voice || captures.length === 0)('the front half, end to end', (
       .join('')
 
     it(`${JSON.stringify(c.in)}${opts}`, () => {
-      const out = synthesize(latin1(c.in), voice!, {
+      const out = synthesizeSentence(latin1(c.in), voice!, {
         pitch: c.opts?.pitch,
         mode: c.opts?.mode,
         sex: c.opts?.sex,
         mouths: Boolean(c.opts?.mouths),
       })
-      expect(out.total).toBe(last.frames!.length - 1)
+      expect(out).not.toBeNull()
+      expect(out!.total).toBe(last.frames!.length - 1)
       const got: number[][] = []
       for (let i = 0; i < last.frames!.length; i++) {
-        got.push(Array.from(out.frames.slice(i * FRAME_BYTES, (i + 1) * FRAME_BYTES)))
+        got.push(Array.from(out!.frames.slice(i * FRAME_BYTES, (i + 1) * FRAME_BYTES)))
       }
       expect(got).toEqual(last.frames)
-      if (last.mouths) expect(Array.from(out.mouths!)).toEqual(last.mouths)
+      if (last.mouths) expect(Array.from(out!.mouths!)).toEqual(last.mouths)
     })
   }
 })
@@ -121,6 +90,11 @@ describe.skipIf(!voice || captures.length === 0)('the front half, end to end', (
  * `capture-frames.py` records both the renderer's input and the PCM it
  * produced, so this is the only place the two halves are asked to agree
  * without the frame array being handed over from the oracle in between.
+ *
+ * `pcm` is the *whole* utterance, every buffer the device wrote, which is why
+ * the multi-sentence corpus lives here and not in `render.test.ts`: that one
+ * renders the captured frame array, and the capture only holds the first
+ * sentence's.
  */
 interface RenderCapture {
   in: string
@@ -128,33 +102,69 @@ interface RenderCapture {
   frames: number[][]
   periodCount: number
   waveStep: number
-  wave: number[]
-  ampTable: number[]
-  fricatives: number[][]
+  period: number
   pcm: number[]
 }
 
-const rendered = read<RenderCapture[]>(RENDER) ?? []
+const rendered = RENDER.flatMap((f) => read<RenderCapture[]>(f) ?? [])
 
-describe.skipIf(!voice || rendered.length === 0)('text to samples', () => {
+describe.skipIf(!voice || !data || rendered.length === 0)('text to samples', () => {
+  it('covers more than one set of speech parameters', () => {
+    const seen = new Set(rendered.map((c) => JSON.stringify(c.params)))
+    expect(seen.size).toBeGreaterThan(1)
+  })
+
+  it('speaks nothing extra for trailing whitespace', () => {
+    // The translator's output always ends in a space, so this is the common
+    // case and not an edge one. The device exits its loop on the parser's `Z`
+    // rather than treating what is left as an empty sentence; a port that
+    // skips the pass instead of stopping speaks a stray frame or two of
+    // lead-in at the end of every utterance.
+    for (const c of rendered.slice(0, 8)) {
+      const n = (t: string): number =>
+        synthesize(latin1(t), voice!, { pitch: c.params.pitch, sex: c.params.sex })
+          .reduce((k, x) => k + x.total, 0)
+      expect(n(`${c.in}  `), c.in).toBe(n(c.in))
+    }
+  })
+
+  it('covers utterances with more than one sentence in them', () => {
+    // The device speaks one sentence per pass and loops; a corpus of
+    // single-sentence phrases cannot tell a port that does not.
+    const many = rendered.filter((c) => (c.in.match(/[.?]/g) ?? []).length > 1)
+    expect(many.length).toBeGreaterThan(2)
+  })
+
   for (const c of rendered) {
-    it(`${JSON.stringify(c.in)}`, () => {
-      const out = synthesize(latin1(c.in), voice!, {
+    const opts = Object.entries(c.params)
+      .filter(([k]) => k !== 'volume' && k !== 'mouths')
+      .map(([k, v]) => `${k}=${v}`)
+      .join(' ')
+
+    it(`${JSON.stringify(c.in)} ${opts}`, () => {
+      // Everything the renderer needs, derived from the parameters rather
+      // than lifted out of the capture — hunk+0x53fa and hunk+0x52e2.
+      const tables = renderTables(data!, {
+        sampfreq: c.params.sampfreq,
+        rate: c.params.rate,
+        sex: c.params.sex,
+      })
+      expect(tables.periodCount).toBe(c.periodCount)
+      expect(tables.waveStep).toBe(c.waveStep)
+      expect(audioPeriod(c.params.sampfreq)).toBe(c.period)
+
+      // One buffer per sentence, each rendered on its own and joined — which
+      // is what the device hands to audio.device, and not the same as joining
+      // the frames and rendering once.
+      const parts = synthesize(latin1(c.in), voice!, {
         pitch: c.params.pitch,
         mode: c.params.mode,
         sex: c.params.sex,
-      })
-      // The renderer stops on bit 7 of byte 0, which `fill` wrote as a whole
-      // 0xff frame, so the array it is handed is the one this built.
-      const tables: RenderTables = {
-        wave: Uint8Array.from(c.wave),
-        ampTable: Uint8Array.from(c.ampTable),
-        fricatives: c.fricatives.map((f) => Uint8Array.from(f)),
-        periodCount: c.periodCount,
-        waveStep: c.waveStep,
-      }
-      const pcm = render(out.frames, tables)
-      expect(Array.from(pcm)).toEqual(c.pcm.map((v) => (v > 127 ? v - 256 : v)))
+      }).map((s) => render(s.frames, tables))
+
+      const got: number[] = []
+      for (const part of parts) got.push(...part)
+      expect(got).toEqual(c.pcm.map((v) => (v > 127 ? v - 256 : v)))
     })
   }
 })

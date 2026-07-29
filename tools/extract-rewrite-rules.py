@@ -90,6 +90,15 @@ def read_rules(data, base):
     raise SystemExit(f'{base:#x}: no terminator within {MAX_RULES} rules')
 
 
+def extract(data):
+    """Both rule sets, for a caller that wants them rather than a listing."""
+    out = {}
+    for label, base in TABLES.items():
+        rules, size = read_rules(data, base)
+        out[label] = {'at': base, 'bytes': size, 'rules': rules}
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('binary')

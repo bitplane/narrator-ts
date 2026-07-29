@@ -51,6 +51,8 @@ tools/
   capture-stages.py    dump the arrays after every front-half stage
   trace-stages.py      diff the workspace across stages, to attribute bytes
   branch-coverage.py   count the device's visits to each branch of a routine
+  say.ts               English to WAV, TypeScript only, no emulator
+  gen-voice.py         emit the narrator tables the library loads
   render-wav.ts        render to WAV with the TypeScript, from frames or text
   trace-render.py      single-step the device, logging pitch pulses and frames
   fetch-musashi.sh     vendor the 68000 core
@@ -130,6 +132,11 @@ python3 tools/capture-parse.py -f fixtures/corpus/parse.txt \
     -o fixtures/golden/parse-edge.json
 python3 tools/capture-frames.py -f fixtures/corpus/frames.txt \
     -o fixtures/golden/frames.json
+python3 tools/capture-frames.py -f fixtures/corpus/frames.txt \
+    --rate 300 --sampfreq 10000 --sex 1 --pitch 200 \
+    -o fixtures/golden/frames-params.json
+python3 tools/capture-frames.py -f fixtures/corpus/sentences.txt \
+    -o fixtures/golden/frames-sentences.json
 python3 tools/capture-stages.py --sub -f fixtures/corpus/frames.txt \
                                       -f fixtures/corpus/stages.txt \
     -o fixtures/golden/stages.json
@@ -194,7 +201,8 @@ it — so a stage is not done until this says the corpus drives it.
 | **TypeScript frame builder** | **byte-exact**, all seven sub-routines |
 | **TypeScript interpolator** | **byte-exact**, all nine sub-routines |
 | **the front half, end to end** | **byte-exact frame array on 238 utterances** |
-| **text to samples** | **sample-exact on all 30 captures, from the string** |
+| **text to samples** | **sample-exact on 65 captures across five parameter sets** |
+| **`tools/say.ts`** | **English to WAV with no emulator, identical to the device** |
 
 Only two distinct translator behaviours exist across 1985-1991: 1.3, and
 31.7 onwards (which includes the V37 rewrite). The single difference is
@@ -269,16 +277,32 @@ out phoneme-for-phoneme identical** to 33.2 (`tools/nrl-divergence.ts`); most
 of the rest is two phonemes NRL does not use and doubled consonants it does
 not silence.
 
-To hear it:
+## Saying something
+
+```
+python3 tools/gen-tables.py fixtures/amiga/translator_library-33.2-1*.bin -o data
+python3 tools/gen-voice.py   fixtures/amiga/narrator_device-33.2-*.bin     -o data
+
+npx vite-node tools/say.ts -- 'hello world' -o hello.wav
+npx vite-node tools/say.ts -- -p '/HEH4LOW WER4LD' -o hello.wav
+npx vite-node tools/say.ts -- 'is this a question' --pitch 200 --rate 100
+```
+
+English through `translate()`, phonemes through `synthesize()`, frames through
+`render()`, out as a WAV at the rate a real Amiga would have played it. No
+emulator in the path. The WAVs are byte-identical to the ones the real device
+produces under the oracle, across `pitch`, `rate`, `sex`, `mode` and
+`sampfreq`.
+
+To compare by ear on the captured corpus instead:
 
 ```
 npx vite-node tools/render-wav.ts -- -o /tmp/out --speak --both
 ```
 
 `--speak` builds the frame array from the phoneme string rather than using the
-device's, so everything you hear is the TypeScript from the text down;
-`--both` writes the device's own PCM beside each file. All 30 come out
-identical, frame array and samples alike.
+device's; `--both` writes the device's own PCM beside each file. All 30 come
+out identical, frame array and samples alike.
 
 **Still open:** `narrator.device` 37.7, the second backend; and the fact that
 the tables are still a *parameter*. `synthesize()` takes the phoneme table,

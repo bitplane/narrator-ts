@@ -19,7 +19,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { render } from '../src/narrator/render.js'
-import { synthesize, type Voice } from '../src/narrator/speak.js'
+import { synthesizeSentence, type Voice } from '../src/narrator/speak.js'
 
 const FRAMES = 'fixtures/golden/frames.json'
 const TABLE = 'fixtures/golden/phonemes-33.2.json'
@@ -149,13 +149,13 @@ function main(): void {
     let built = ''
     if (voice) {
       const latin1 = Uint8Array.from([...c.in].map((ch) => ch.charCodeAt(0) & 0xff))
-      const out = synthesize(latin1, voice, {
+      const out = synthesizeSentence(latin1, voice, {
         pitch: c.params?.pitch, mode: c.params?.mode, sex: c.params?.sex,
       })
-      const same = out.frames.length >= input.length &&
+      const same = out !== null && out.frames.length >= input.length &&
         input.every((v, i) => v === out.frames[i])
       built = same ? '  [frames match]' : '  [FRAMES DIFFER]'
-      input = out.frames
+      if (out) input = out.frames
     }
     const ours = render(input, {
       wave: Uint8Array.from(c.wave),

@@ -1,0 +1,16 @@
+# Utterances with more than one sentence in them.
+#
+# The parser stops at the first `.` or `?` and reports how far it got;
+# hunk+0x8ba loops on that and speaks each sentence as its own buffer, with the
+# renderer's waveform pointer and pitch phase starting again at each. A port
+# that runs the pipeline once speaks the first sentence and drops the rest,
+# which is what happened -- nothing in the other corpora has two sentences.
+#
+# `frames` in these captures is the first sentence only, since the rig breaks
+# at the first render loop; the `pcm` is the whole utterance. So these belong
+# to speak.test.ts and not to render.test.ts.
+PLIY4Z. TAY4P WHAHT YUW WAA4NT MIY TUW SEY3
+WAH4N. TUW4. THRIY4.
+IHZ DHIH4S AH KWEH4SCHAHN? YEH4S IHT IHZ.
+/HEH4LOW. GUH4D BAY4.
+DHIHS IHZ WAH4N SEH4NTEHNS, WIHDH AH KAA4MAH. AEND DHIHS IHZ AHNAH4DHER.

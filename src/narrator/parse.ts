@@ -51,6 +51,15 @@ export interface Parsed {
   /** Total length written, terminator included — the device's D3. */
   count: number
   /**
+   * Input bytes this pass took — the device's `A5+0x96`.
+   *
+   * The parser stops at the end of a sentence, not at the end of the string.
+   * `CMD_WRITE` loops: it speaks what came back, advances the input pointer by
+   * this, and calls the parser again on what is left. A caller that ignores it
+   * gets the first sentence and nothing else.
+   */
+  consumed: number
+  /**
    * Set when the device rejects the input: the 1-based offset of the
    * offending character, which is what it reports back in `io_Actual`.
    */
@@ -77,7 +86,7 @@ export function parse(input: Uint8Array, table: PhonemeTable, length = input.len
   phonemes[2] = P.QX
 
   // 0xf68: an empty request produces nothing at all, not an empty utterance.
-  if (length <= 0) return { phonemes, stress, flags, count: 0 }
+  if (length <= 0) return { phonemes, stress, flags, count: 0, consumed: 0 }
 
   let at = 0          // A0, the read position
   let n = LEAD_IN     // D3, the write position
@@ -186,9 +195,12 @@ export function parse(input: Uint8Array, table: PhonemeTable, length = input.len
   flags[n] = TERMINATOR
   n++
 
+  // 0x110e: how far the scan got, which is what the driver advances by.
+  const consumed = at
+
   // 0x1118: four or fewer means the lead-in and nothing else.
-  if (n <= LEAD_IN) return { phonemes, stress, flags, count: 0 }
-  return { phonemes, stress, flags, count: n }
+  if (n <= LEAD_IN) return { phonemes, stress, flags, count: 0, consumed }
+  return { phonemes, stress, flags, count: n, consumed }
 
   /** 0x10aa: stop once io_Length is consumed, whatever the buffer holds. */
   function more(): boolean {
@@ -200,7 +212,7 @@ export function parse(input: Uint8Array, table: PhonemeTable, length = input.len
 
   /** 0x10c2: the device reports a 1-based character offset, not a code. */
   function fail(pos: number): Parsed {
-    return { phonemes, stress, flags, count: 0, error: pos + 1 }
+    return { phonemes, stress, flags, count: 0, consumed: at, error: pos + 1 }
   }
 }
 
