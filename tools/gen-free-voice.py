@@ -55,6 +55,9 @@ NAMES = [
     'B', '', '', 'D', '', '', 'G', '', '', 'GX', '', '', 'GH', '', '',
     'P', '', '', 'T', '', '', 'K', '', '', 'KX', '', '', 'KH', '', '',
     'UL', 'UM', 'UN', 'IL', 'IM', 'IN',
+    # The stress digits sit past the attribute table: the parser matches them
+    # by name and peels them off before any attribute lookup.
+    '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
 ]
 COUNT = 102          # entries with attributes and parameters
 SLOTS = len(NAMES)   # 112, including the ten stress digits past the end
@@ -168,8 +171,12 @@ F = {
     ' ':  'unspoken boundary',
     '.':  'phrase_break terminator ends_phrase boundary',
     '?':  'phrase_break terminator ends_phrase boundary',
-    ',':  'phrase_break terminator boundary',
-    '-':  'terminator boundary',
+    # Every mark that can end a phrase carries bit 25, and several loops in
+    # the contour and prosody stages use it as their only stopping condition.
+    # The parser appends a dash to every utterance, so this is what terminates
+    # them on an input with no punctuation at all.
+    ',':  'phrase_break terminator ends_phrase boundary',
+    '-':  'terminator ends_phrase boundary',
     '(':  'unspoken', ')': 'unspoken',
     # vowels, by tongue position and rounding
     'IY': 'vowel sonorant voiced front',   'IH': 'vowel sonorant voiced front',
@@ -235,16 +242,51 @@ F = {
 }
 
 
+# Where each diphthong's offglide is heading. The continuation slot is a
+# segment in its own right, and its quality is the *target's*, not the
+# nucleus's -- /aI/ ends in an /I/ however it started.
+OFFGLIDE = {'EY': 'front', 'AY': 'front', 'OY': 'front',
+            'AW': 'back round', 'OW': 'back round', 'UW': 'back round'}
+
+
+def continuation(i):
+    """The features of an unnamed slot, from what its head is."""
+    head = i - 1
+    while not NAMES[head]:
+        head -= 1
+    hf = set(F[NAMES[head]].split())
+    which = i - head
+    if 'vowel' in hf:
+        # An offglide: a vowel of its own, aimed where the diphthong lands.
+        return words(f'vowel sonorant voiced {OFFGLIDE.get(NAMES[head], "back")}')
+    if 'affricate' in hf:
+        # The frication, then its release.
+        base = 'consonant fricative velar continuation' if which == 1 else \
+               'consonant aspirate continuation'
+        if 'voiced' in hf:
+            base += ' voiced'
+        return words(base)
+    # A stop's burst and aspiration. Neither is a closure, so neither is a
+    # stop: what they are is a puff of air at the release.
+    base = 'consonant aspirate continuation'
+    if 'voiced' in hf:
+        base += ' voiced voiced_stop'
+    return words(base)
+
+
+def words(spec):
+    v = 0
+    for f in spec.split():
+        v |= 1 << BIT[f]
+    return v
+
+
 def attributes():
     """One longword per phoneme, assembled from the features above."""
     out = [0] * COUNT
     for i, n in enumerate(NAMES[:COUNT]):
         if not n:
-            # A continuation slot inherits its head's features and adds its
-            # own bit, which is what hunk+0x1492 tests to give it a duration.
-            out[i] = out[i - 1] | (1 << BIT['continuation'])
-            # It is not itself a diphthong head.
-            out[i] &= ~(1 << BIT['diphthong'])
+            out[i] = continuation(i)
             continue
         for f in F[n].split():
             out[i] |= 1 << BIT[f]
@@ -261,7 +303,10 @@ def attributes():
 # 6, leaving a net 6 dB/octave: each doubling of frequency costs roughly a
 # quarter of the scale. That is the model below, and it is the one number here
 # most in need of an ear rather than an argument.
-VOWEL_A1 = 26
+# Calibrated so an utterance lands at about the same RMS as 33.2's: loudness
+# is a level, not a design, and a voice that clips is not a different voice
+# but a broken one.
+VOWEL_A1 = 18
 TILT = 3.0
 
 
@@ -279,8 +324,8 @@ def amplitudes(f1_hz, f2_hz, f3_hz, top=VOWEL_A1):
 # most of its energy to the antiformant of the closed oral cavity; a stop at
 # closure is silence, and the burst is a separate slot.
 LOUDNESS = {
-    'vowel': 26, 'liquid': 24, 'glide': 22, 'nasal': 16,
-    'fricative': 10, 'stop': 4, 'aspirate': 8,
+    'vowel': 18, 'liquid': 17, 'glide': 15, 'nasal': 11,
+    'fricative': 7, 'stop': 3, 'aspirate': 6, 'consonant': 12,
 }
 
 # The eight noise tables, by place of articulation. Bits 4-6 of the voicing
@@ -309,7 +354,7 @@ def voice_and_amps(f1, f2, f3):
             feats = set(F.get(NAMES[i - 1], '').split())
         top = 0
         for cls in ('vowel', 'liquid', 'glide', 'nasal', 'fricative',
-                    'stop', 'aspirate'):
+                    'stop', 'aspirate', 'consonant'):
             if cls in feats:
                 top = LOUDNESS[cls]
                 break
@@ -330,6 +375,228 @@ def voice_and_amps(f1, f2, f3):
             if 'voiced' in feats:
                 voicing[i] |= 0x80
     return a1, a2, a3, voicing
+
+
+# ---------------------------------------------------------------------------
+# Durations, in frames, stressed and unstressed. A frame is sampfreq x 75 /
+# rate / 60 / 2 samples - about 4 ms at the defaults - and hunk+0x1be8 scales
+# these by sixteen context rules before anything is spoken, so these are
+# intrinsic durations only.
+#
+# The ordering is Klatt 1976 ("Linguistic uses of segmental duration"): vowels
+# longest and low vowels longer than high ones, fricatives next, voiceless
+# longer than voiced, stops shortest. Unstressed is roughly a third.
+DURATION = {
+    'vowel': 22, 'liquid': 11, 'glide': 10, 'nasal': 9,
+    'fricative': 14, 'stop': 9, 'aspirate': 10,
+    # A flap is the shortest segment in the language: one ballistic tongue
+    # contact, 20-30 ms.
+    'consonant': 6,
+}
+LOW_VOWELS = {'AA', 'AE', 'AO', 'AH', 'OH'}
+HIGH_VOWELS = {'IY', 'IH', 'IX', 'UW', 'UX'}
+
+
+def durations():
+    st = [0] * COUNT
+    un = [0] * COUNT
+    for i, n in enumerate(NAMES[:COUNT]):
+        if not n:
+            # A continuation slot is a real segment with a real length, and
+            # hunk+0x1492 reads it straight out of this table. A zero here is
+            # not "no frames" -- hunk+0x15e0's fill loop is `subq` then
+            # `dbra`, so it is 65536 of them.
+            head = i - 1
+            while not NAMES[head]:
+                head -= 1
+            which = i - head
+            hf = set(F[NAMES[head]].split())
+            if 'affricate' in hf:
+                # The frication that follows the closure, then its release.
+                st[i], un[i] = (9, 6) if which == 1 else (5, 2)
+            elif 'stop' in hf:
+                # Burst and aspiration: one frame each, and hunk+0x1492
+                # splits a duration across the pair where it needs more.
+                st[i] = un[i] = 1
+            else:
+                # A diphthong's offglide, shorter than its nucleus.
+                st[i] = max(1, round(st[head] * 0.55))
+                un[i] = max(1, round(un[head] * 0.55))
+            continue
+        feats = set(F[n].split())
+        base = 0
+        for cls in ('vowel', 'liquid', 'glide', 'nasal', 'fricative',
+                    'stop', 'aspirate', 'consonant'):
+            if cls in feats:
+                base = DURATION[cls]
+                break
+        if n in LOW_VOWELS:
+            base += 3
+        if n in HIGH_VOWELS:
+            base -= 3
+        if 'voiced' in feats and 'fricative' in feats:
+            base -= 3         # voiced fricatives are shorter
+        st[i] = base
+        un[i] = max(1, round(base * 0.38))
+    # Punctuation is a pause, not a sound. A full stop and a question are the
+    # long ones, a comma shorter, a dash shorter still.
+    for n, d in (('.', 24), ('?', 24), (',', 36), ('-', 24), ('Q', 10)):
+        st[NAMES.index(n)] = un[NAMES.index(n)] = d
+    blank = [NAMES[i] or f'<{i}>' for i in range(COUNT)
+             if not st[i] and not (F.get(NAMES[i], '') or '').count('unspoken')
+             and NAMES[i] not in ('(', ')', ' ')]
+    assert not blank, f'zero duration would mean 65536 frames: {blank}'
+    return st, un
+
+
+# ---------------------------------------------------------------------------
+# Coarticulation. hunk+0x172a blends the join between two phonemes towards
+# whichever *ranks* higher, by the winner's weight in 1/32nds, over the number
+# of frames the transition columns allow.
+#
+# Rank is how much a sound imposes its own shape on its neighbours. A stop or
+# a fricative has a definite constriction and holds it; a vowel is the most
+# yielding thing in the inventory, which is why a vowel next to a consonant
+# takes the consonant's shape at the join and not the other way round.
+RANK = {
+    'phrase_break': 31, 'stop': 10, 'fricative': 9, 'nasal': 8,
+    'liquid': 6, 'glide': 5, 'consonant': 4, 'vowel': 2,
+}
+WEIGHT = {
+    'phrase_break': 16, 'stop': 12, 'fricative': 14, 'nasal': 20,
+    'liquid': 18, 'glide': 22, 'consonant': 20, 'vowel': 24,
+}
+
+
+def blending():
+    rank = [0] * COUNT
+    weight = [0] * COUNT
+    tin = [0] * COUNT
+    tout = [0] * COUNT
+    for i, n in enumerate(NAMES[:COUNT]):
+        key = n or NAMES[i - 1]
+        feats = set(F.get(key, '').split())
+        for cls, r in RANK.items():
+            if cls in feats:
+                rank[i], weight[i] = r, WEIGHT[cls]
+                break
+        # A glide is nothing but transition; a stop is nothing but hold.
+        if 'glide' in feats or 'liquid' in feats:
+            tin[i], tout[i] = 5, 3
+        elif 'vowel' in feats:
+            tin[i], tout[i] = 4, 2
+        elif 'nasal' in feats:
+            tin[i], tout[i] = 4, 1
+        elif 'fricative' in feats:
+            tin[i], tout[i] = 2, 1
+        elif 'stop' in feats:
+            tin[i], tout[i] = 2, 0
+    return rank, weight, tin, tout
+
+
+# ---------------------------------------------------------------------------
+# Mouth shapes for the lip-sync stream: a width in the low nibble and a height
+# in the high one, straight off the articulation.
+def mouths():
+    out = [0] * COUNT
+    for i, n in enumerate(NAMES[:COUNT]):
+        key = n or NAMES[i - 1]
+        feats = set(F.get(key, '').split())
+        if 'vowel' in feats:
+            height = 9 if key in LOW_VOWELS else (3 if key in HIGH_VOWELS else 6)
+            width = 3 if 'round' in feats else (9 if 'front' in feats else 6)
+        elif 'labial' in feats:
+            height, width = 1, 4
+        elif 'round' in feats:
+            height, width = 3, 3
+        elif 'velar' in feats:
+            height, width = 4, 6
+        else:
+            height, width = 3, 7
+        out[i] = ((height & 0xf) << 4) | (width & 0xf)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# The renderer's own tables.
+def gain_curve():
+    """32 entries mapping the perceptual amplitude scale onto a linear one.
+
+    Loudness goes roughly as intensity to the 0.3, so the inverse is a power
+    curve. Anchored at both ends: silence is silence and full scale is full.
+    """
+    return [round(31 * (i / 31) ** 2.4) for i in range(32)]
+
+
+def amp_table():
+    """hunk+0x3106: amplitude x waveform, done as a lookup.
+
+    Indexed by (amplitude << 5) | waveform with the waveform read as a signed
+    five-bit value. Pure arithmetic - there is only one way to express a
+    multiplication table, so this is regenerated rather than reproduced.
+    """
+    out = []
+    for a in range(32):
+        for w in range(32):
+            sw = w - 32 if w >= 16 else w
+            out.append(((a * sw) >> 2) & 0xFF)
+    return out
+
+
+def waveform():
+    """hunk+0x4aae: the excitation, as a lookup indexed by phase.
+
+    The renderer holds a phase accumulator per formant and reads this table
+    through it, stepping the base pointer once per `waveStep` samples as the
+    pitch period runs on. So the table is a resonator's impulse response laid
+    out in time: one cycle across each 64-byte window, decaying as the window
+    advances, which is what a formant excited by a glottal pulse does.
+
+    The envelope is Rosenberg's (1971) glottal pulse: a rising quarter-cosine
+    to the instant of closure, then a faster fall. Values are unsigned five
+    bits, which the amplitude table above reads back as signed.
+    """
+    out = []
+    rows = 64
+    for row in range(rows):
+        t = row / rows
+        # Rosenberg: open phase rises, closure is abrupt, then it decays.
+        env = math.sin(math.pi * t) ** 1.6 * math.exp(-2.6 * t)
+        for ph in range(64):
+            v = math.sin(2 * math.pi * ph / 64) * env
+            out.append(round(15.5 + 15.5 * v) & 0x1F)
+    return out
+
+
+def fricatives(seed=0x1F2E3D4C):
+    """Eight noise tables, one per place of articulation.
+
+    Frication is turbulence at a constriction, so the spectrum is broadband
+    but shaped by the cavity in front of it: a short front cavity (alveolar,
+    /s/) resonates high, a long one (labial, /f/) is flatter and quieter.
+    Modelled as white noise through a one-pole filter, the pole moving from
+    low to high across the eight, then quantised the way the device's own are.
+
+    A fixed generator rather than captured noise: reproducible, and nobody's.
+    """
+    tables = []
+    state = seed
+    def rnd():
+        nonlocal state
+        state = (state * 1103515245 + 12345) & 0x7FFFFFFF
+        return (state >> 16) / 32768.0 - 0.5
+    for k in range(8):
+        # k=0 flat, rising to a high-passed hiss at k=7
+        pole = -0.85 + 0.24 * k
+        y = 0.0
+        raw = []
+        for _ in range(480):
+            y = pole * y + rnd()
+            raw.append(y)
+        peak = max(abs(v) for v in raw) or 1.0
+        tables.append([max(0, min(255, round(128 + 127 * v / peak)))
+                       for v in raw])
+    return tables
 
 
 def main():
@@ -358,6 +625,15 @@ def main():
 
     attrs = attributes()
     a1, a2, a3, voicing = voice_and_amps(f1, f2, f3)
+    st, un = durations()
+    rank, weight, tin, tout = blending()
+
+    # The second voice. A female tract is about 15% shorter, and formants
+    # scale inversely with length (Fant 1966) -- F3 least, since it depends
+    # most on the fixed pharyngeal cavity.
+    alt = {'f1': [min(255, round(v * 1.17)) for v in f1],
+           'f2': [min(255, round(v * 1.17)) for v in f2],
+           'f3': [min(255, round(v * 1.10)) for v in f3]}
 
     out = {
         'version': 'free',
@@ -365,7 +641,22 @@ def main():
         'names': NAMES,
         'attrs': attrs + [0] * (SLOTS - COUNT),
         'params': {'f1': f1, 'f2': f2, 'f3': f3,
-                   'a1': a1, 'a2': a2, 'a3': a3, 'voicing': voicing},
+                   'a1': a1, 'a2': a2, 'a3': a3, 'voicing': voicing,
+                   'rank': rank, 'weight': weight,
+                   'transitionIn': tin, 'transitionOut': tout,
+                   'mouth': mouths()},
+        'paramsAlt': alt,
+        'stressed': st,
+        'unstressed': un,
+        'gain': gain_curve(),
+        # No allophonic rules yet. The engine runs without them; what is lost
+        # is the contextual variation -- flapped /t/, aspirated stops, the
+        # syllabic consonants -- not the ability to speak.
+        'rules': {'allophones': {'at': 0, 'bytes': 0, 'rules': []},
+                  'frames': {'at': 0, 'bytes': 0, 'rules': []}},
+        'wave': waveform(),
+        'amp': amp_table(),
+        'fricatives': fricatives(),
     }
     Path(args.out).write_text(json.dumps(out, indent=1) + '\n')
     print(f'-> {args.out}')

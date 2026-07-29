@@ -65,3 +65,26 @@ It has no stress marks, no whole-word pronunciations and no letter-name rules,
 because NRL has none of those. Ignoring stress, about two thirds of English
 words come out identical to `translator.library` 33.2 —
 `npx vite-node tools/nrl-divergence.ts` measures it.
+
+## `voice-free.json`
+
+A complete narrator voice built by `tools/gen-free-voice.py` from published
+phonetics and from what `research/02-narrator.md` established each table
+column means. Nothing in it is Commodore's or SoftVoice's.
+
+The rule the generator holds to:
+
+> Measurements come from the literature, cited at the point of use.
+> Structure comes from principle, with the reasoning written down.
+> No number is ever copied out of an extracted table.
+
+It is not byte-identical to 33.2 and is not trying to be. What it is checked
+against is stated rather than assumed — the attribute words, derived from
+phonetic features alone, agree with 33.2's on 98% of their bits, and an
+utterance comes out within 7% of the same length.
+
+**Provisional, and marked so in the generator:** the amplitude tilt, the
+glottal waveform envelope, and the eight fricative spectra are the parts that
+want an ear rather than an argument. There are also no allophonic rewrite
+rules yet, so the contextual variation — flapped /t/, aspirated stops, the
+syllabic consonants — is missing. It speaks; it is not finished.
