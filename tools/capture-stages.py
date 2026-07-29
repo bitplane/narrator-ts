@@ -123,7 +123,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('-d', '--device', default=DEFAULT_DEV)
     ap.add_argument('-p', '--phrase', action='append', default=[])
-    ap.add_argument('-f', '--file')
+    ap.add_argument('-f', '--file', action='append', default=[])
     ap.add_argument('-o', '--out', required=True)
     ap.add_argument('-n', '--steps', type=int, default=30_000_000)
     ap.add_argument('--sub', action='store_true',
@@ -133,8 +133,8 @@ def main():
     args = ap.parse_args()
 
     phrases = list(args.phrase)
-    if args.file:
-        phrases += capture_parse.read_corpus(Path(args.file))
+    for path in args.file:
+        phrases += capture_parse.read_corpus(Path(path))
     if not phrases:
         ap.error('nothing to capture: pass -p or -f')
 

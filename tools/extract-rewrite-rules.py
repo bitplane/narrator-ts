@@ -9,11 +9,25 @@ are actually made of: diphthongs gain their second half, and `P`/`T`/`K` gain
 a release whose identity depends on whether an `S` precedes, which is the
 difference between "pin" and "spin".
 
-A rule is variable length. Byte 3's low nibble is that length, and **a length
-of zero is the terminator**, not `0xff` -- `0xff` in byte 0 means "any
-phoneme". Reading it the other way stops table 1 six rules early, at a rule
-that happens to start with `0xff`, and the rules it drops are the ones that
-insert glottal stops.
+A rule is variable length, and there are two traps in reading that length.
+
+Byte 3's low nibble is the length, and a length of zero ends the table -- not
+`0xff`, which in byte 0 means "any phoneme". Reading it the other way stops
+table 1 six rules early, at a rule that happens to start with `0xff`, and the
+rules it drops are the ones that insert glottal stops.
+
+But the last rule of each table has a length nibble of zero and is *still a
+rule*. The engine only reads the nibble at hunk+0x1316, on the path that skips
+a rule that did not match; a rule that matches is applied without it ever
+being looked at, and there is never a need to skip past the last rule. So the
+terminator and the final rule are the same bytes. Dropping it costs table 2
+the `CH` continuation and table 1 its own last rule, which is the kind of
+thing that shows up as one phoneme missing from one word in a corpus.
+
+That also means the tests cannot be delimited by the length: hunk+0x13e4 reads
+them until bit 7, three groups' worth, with no bound. Doing the same here
+recovers the last rule and, on every other rule in both tables, agrees with
+the nibble exactly.
 
     +0  phoneme to match, 0xff for any
     +1  left neighbour, 0xff for any
@@ -41,23 +55,37 @@ TABLES = {'allophones': 0x968, 'frames': 0xAE3}
 MAX_RULES = 512
 
 
+def read_tests(data, off):
+    """Three groups from `off`, each running to a byte with bit 7 set."""
+    end = off
+    for _ in range(3):
+        while not data[end] & 0x80:
+            end += 1
+        end += 1
+    return list(data[off:end]), end
+
+
 def read_rules(data, base):
     rules, off = [], base
     for _ in range(MAX_RULES):
         length = data[off + 3] & 0x0F
-        if length == 0:
-            return rules, off + 4 - base
+        tests, end = read_tests(data, off + 7)
+        if length and end - off != length:
+            raise SystemExit(f'{off:#x}: tests run to {end - off}, nibble says {length}')
         rules.append({
             'at': off,
             'match': data[off],
             'left': data[off + 1],
             'right': data[off + 2],
             'flags': data[off + 3] >> 4,
-            'replace': data[off + 4] if length > 4 else 0xFF,
-            'insertBefore': data[off + 5] if length > 5 else 0xFF,
-            'insertAfter': data[off + 6] if length > 6 else 0xFF,
-            'tests': list(data[off + 7:off + length]),
+            'replace': data[off + 4],
+            'insertBefore': data[off + 5],
+            'insertAfter': data[off + 6],
+            'tests': tests,
         })
+        # A length of zero ends the table, but only after this rule is kept.
+        if length == 0:
+            return rules, end - base
         off += length
     raise SystemExit(f'{base:#x}: no terminator within {MAX_RULES} rules')
 

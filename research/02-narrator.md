@@ -540,10 +540,10 @@ handing the next a workspace rather than a value:
 | `0x826` | `0x11bc` | stress bytes: `0x80` and `0x80\|digit` |
 | `0x82c` | `0x1e1c` | word pairs at `A5+0x5e`..`0x88` |
 | `0x832` | `0x1ee0` | loop test, with `0x2160` as the body |
-| `0x846` | `0x1be8` | flag bytes |
+| `0x846` | `0x1be8` | durations, into the flag array |
 | `0x852` | `0x12d8` | rewrite pass 2, rules at `hunk+0xae3` |
-| `0x85c` | `0x1454` | rewrites all three arrays, shifted to index 0 |
-| `0x866` | `0x19bc` | stress again |
+| `0x85c` | `0x1454` | drops the spaces, then lays out the frame array |
+| `0x866` | `0x19bc` | contour codes, into the low nibble of the stress byte |
 | `0x86c` | `0x29d8` | the frame array, in allocated memory |
 | `0x884` | `0x52b4` | the renderer |
 
@@ -671,6 +671,30 @@ expands it across frames.
 `tools/capture-stages.py` records all eight, plus `A5+0x20`..`0xb0`, at every
 stage boundary.
 
+### The last rule of each table is also its terminator
+
+Byte 3's low nibble is a rule's length, and a length of zero ends the table.
+But the last rule of **both** tables has a length nibble of zero and is still
+a live rule, because the nibble is only read at `hunk+0x1316` — the path that
+skips a rule that did **not** match. A rule that matches is applied without it
+ever being looked at, and there is never a need to skip past the last rule, so
+the terminator and the final rule are the same bytes.
+
+The tests cannot be delimited by the length either: `hunk+0x13e4` reads them
+until bit 7, three groups' worth, with no bound at all. Reading them that way
+recovers the last rule and, on every other rule in both tables, agrees with
+the nibble exactly — 79 rules, 79 agreements, which is what makes it safe.
+
+Reading the length as a terminator instead costs each table its last rule:
+
+| table | rule | effect |
+|---|---|---|
+| `0x968` | `WH` → `/H` `W` | the "which"/"witch" distinction, gone entirely |
+| `0xae3` | `<57>` +after `<58>` | `CH`'s second continuation frame |
+
+Neither shows up in a short corpus. The `CH` one surfaced on `STREH4NGKTH`
+and nowhere else in 74 phrases, as a single missing phoneme.
+
 ### The duration model
 
 `hunk+0x1520` reads a per-phoneme duration from a table at `hunk+0x3806`, and
@@ -712,20 +736,85 @@ is set — which is exactly the continuation slots rewrite pass 2 created —
 copies the previous phoneme's stress and looks a duration up in the tables
 above. `RX` gets a special case that averages its own duration with its
 predecessor's and writes the result to both, and attribute bit 7 halves a
-duration across two slots. The main phonemes' durations must therefore come
-from `0x1970`, which runs first and is not yet read.
+duration across two slots.
+
+`0x1970` turned out not to be the duration assignment at all. It is a
+compaction: it walks the three arrays and drops every phoneme whose attribute
+bit 20 is set — the space and the bracket markers — copying the survivors down
+to index 0. That is why the stage tracer sees it rewrite all three arrays.
+
+### Durations are assigned by `hunk+0x1be8`, into the flag array
+
+The main durations are set two stages earlier, and they are written into the
+**flag** array rather than an array of their own: from `0x1be8` onwards
+`flags[i] & 0x3f` is a frame count, and the spreader's `0x80` and `0x40` sit
+above it untouched. That reuse is why the later stages appear to read
+durations out of the wrong array.
+
+The routine picks a point between the phoneme's stressed and unstressed table
+entries. It accumulates a scale in 1/32nds, starting at exactly 32, and
+multiplies in a factor for each thing it notices — `hunk+0x1e12` is
+`D0 = (D0 * D1 + 16) >> 5`, so every factor rounds to nearest on its own:
+
+| factor | when |
+|---:|---|
+| 45/32 | the phoneme is between the last vowel and a phrase-final pause |
+| 45/32 | a liquid or nasal immediately before a pause |
+| 27/32 | a vowel that is not its syllable's nucleus |
+| 26/32 | a vowel inside a spread |
+| 22/32 | a vowel outside any stressed syllable |
+| 38/32 | a stressed vowel before a pause |
+| 38/32 | a vowel before a **voiced** fricative or stop |
+| 22/32 | a vowel before a **voiceless** stop |
+| 27/32 | a vowel before an unstressed nasal |
+| 27/32 | a consonant that does not follow a pause |
+| 3/32 | an unstressed liquid or glide running into a vowel |
+| 38/32, 22/32 | a vowel with a vowel after it, or before it |
+| 16/32, 22/32 | a consonant in a cluster on both sides, or one |
+
+Then `duration = floor + (ceiling - floor) * scale / 32`, where the floor is
+halved first unless the phoneme is stressed or is a liquid or glide; and a
+stressed vowel after a voiceless stop gets three frames back, which is the
+aspiration being paid for.
+
+Two of those are real phonetics rather than bookkeeping. The voiced/voiceless
+split before an obstruent is the pre-voicing lengthening that makes "buzz"
+longer than "bus" — same vowel, same stress, different neighbour. And the 3/32
+on an unstressed liquid before a vowel is what makes `/R/` and `/L/` glide
+into the vowel instead of standing as segments of their own.
+
+The clamp at `0x1dfe` is dead code. Every factor is at most 45/32 and no path
+applies more than two of the large ones, so the scale cannot exceed 63; run
+the whole table at 63 and the largest result is 61 frames (`OY`, floor
+halved), under the 63 the clamp tests for. It is ported anyway, because it is
+what the routine says and because 37.7 may retune the tables.
+
+### Fixtures that pass prove nothing about branches they do not reach
+
+The stress spreader passed 27 of 30 captures with a real bug in it, because
+only multi-syllable words went down the affected path. `tools/branch-coverage.py`
+answers that directly: it counts the **device's** own visits to each decision
+point in a routine, so a branch nothing reaches is a measured fact rather than
+a hope.
+
+Run against the duration routine, the renderer's 30-phrase corpus reached 19
+of its 20 decision points, but five of them exactly once. `fixtures/corpus/stages.txt`
+was written to fix that — real English words chosen per branch, because a
+phonotactically impossible string can exercise a branch and still tell you
+nothing — and every reachable point is now driven at least four times. Writing
+it is also what exposed the missing rewrite rules above.
 
 ## Still open
 
-- **How phonemes become frames** — the duration model, and how `rate` and
-  stress scale it. The parser and both rewrite passes are done; what is left
-  is the stage table above from `0x11bc` onwards. The pitch machinery
-  (`0x1e1c`, `0x1ee0`, `0x2160`) writes word pairs into `A5+0x5e`..`0x88` and
-  three arrays at `A5+0x6e8`, `+0x768` and `+0x7e8` whose meaning is not yet
-  established; `0x1454` rewrites all three arrays shifted to index 0, which
-  looks like the point where phonemes become frame slots; and `0x29d8` writes
-  the frame array itself into allocated memory rather than the workspace,
-  which is why the stage tracer sees it change nothing.
+- **How phonemes become frames.** The parser, both rewrite passes, the onset
+  marker, the stress spreader and the duration assignment are done. What is
+  left is the pitch machinery (`0x1ee0` and `0x2160`, filling the eight
+  parameter arrays per syllable); the rest of `0x1454`, whose `0x1586` sets
+  `A5+0x28` and so is where the frame array is allocated and laid out;
+  `0x19bc`, which masks the stress byte to its high nibble and writes a
+  contour code 1..6 into the low one before calling `0x1a8e`; and `0x29d8`,
+  which writes the frame array itself into allocated memory rather than the
+  workspace, which is why the stage tracer sees it change nothing.
   `fixtures/golden/frames.json` already holds the frames the device produced
   for each captured utterance, so this has an oracle waiting for it the way
   the renderer did.

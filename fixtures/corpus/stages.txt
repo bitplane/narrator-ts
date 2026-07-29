@@ -1,0 +1,81 @@
+# Phoneme strings for the *front half* of the pipeline — parse through frame
+# generation — captured by `tools/capture-stages.py` alongside
+# fixtures/corpus/frames.txt, which is chosen for the renderer instead.
+#
+# These earn their place by driving a decision the rest of the corpus reaches
+# once or not at all. `tools/branch-coverage.py` is how that is measured: it
+# counts the device's own visits to each branch, so a thin count here is a
+# fact about the fixtures rather than a guess.
+#
+# Everything is written as real English words, because a phonotactically
+# impossible string can exercise a branch and still tell you nothing about
+# whether the port is right for speech.
+
+# Liquids and nasals before a pause — hunk+0x1c60 stretches them by 45/32.
+# All of these end the phrase, so the `-` the parser appends is the pause.
+AO4L
+KAA4R
+FAH4N
+/HOW4M
+SIH4NX
+PER4L
+
+# Vowels before a voiced fricative — hunk+0x1cc8, the pre-voicing lengthening
+# that makes "buzz" longer than "bus". The pairs are here to be compared.
+BAH4Z
+BAH4S
+LIY4V
+LIY4F
+BREY4DH
+BREY4TH
+RUW4ZH
+
+# Vowels before a voiced stop — hunk+0x1cd8, same effect, stops instead.
+KAE4B
+KAE4P
+BAE4D
+BAE4T
+BIH4G
+PIH4K
+
+# Unstressed liquids and glides running into a vowel — hunk+0x1d40 cuts them
+# to 3/32, which is what makes them glide rather than stand as segments.
+VEH4RIY
+BIH4LOW
+AH WEY4
+BIYAO4ND
+MEH4LOWDIY
+
+# Vowels before an unstressed nasal — hunk+0x1cf2, 27/32.
+KAE4N
+SAH4M
+RIH4NX
+/HAE4NDBAE4G
+
+# Consonant clusters, for the neighbour tests at hunk+0x1d8a: both sides,
+# one side, neither.
+STREH4NGKTH
+SIH4KSTHS
+AE4KTS
+SPRIH4NX
+
+# Vowel against vowel across a word boundary — hunk+0x1d76 and 0x1d82 need
+# the phoneme either side of a space, not next to it.
+SIY4 IH4T
+DUW4 AE4SK
+GOW4 AH WEY4
+
+# Stressed vowels after a voiceless stop — hunk+0x1dfa hands back the three
+# frames the aspiration took.
+PAA4RK
+TAY4M
+KIY4P
+TUW4 PAA4RTS
+
+# Multi-syllable words and whole sentences, to keep the stages that only show
+# themselves over a phrase honest.
+KAH4MPYUWTER
+IHNTEH4LIHJEHNS
+DHIHS IHZ AH TEH4ST
+/HAW AA4R YUW.
+WAH4T IHZ IHT,
