@@ -205,6 +205,11 @@ BODY = [
     (0x22D0, '0x220c leave it alone'),
     (0x22D6, '0x220c total, and the early exit at the first stress'),
     (0x22EC, '0x220c scale by the stress level'),
+    (0x231C, '0x230c total, one per syllable'),
+    (0x2326, '0x230c a stressed syllable'),
+    (0x2340, '0x230c a negative cadence nibble'),
+    (0x236E, '0x230c the fall came out negative, clipped'),
+    (0x2380, '0x230c the moved marker with no cadence of its own'),
 ]
 
 ROUTINES = {'durations': DURATIONS, 'frames': FRAMES, 'blend': BLEND,

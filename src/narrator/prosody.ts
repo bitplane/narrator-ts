@@ -114,6 +114,10 @@ const MIDDLE = 1
 const CADENCE = 3
 const DESCRIPTOR = 4
 const VOICING = 5
+/** `arr6`: how far above its middle a syllable's peak goes. */
+const RISE = 6
+/** `arr7`: how far below it the low goes. */
+const FALL = 7
 
 /**
  * hunk+0x1f02. Walk the next phrase and write one descriptor per syllable.
@@ -462,6 +466,20 @@ export function phrasePitch(state: ProsodyState): number {
 const sb = (v: number): number => ((v & 0xff) << 24) >> 24
 const sw = (v: number): number => ((v & 0xffff) << 16) >> 16
 
+/** `muls.w`: both operands are low words, and the result is a longword. */
+const muls = (a: number, b: number): number => sw(a) * sw(b)
+
+/**
+ * The rounding idiom the rest of the pitch loop's body is built out of:
+ * `bpl` on the product, then `addi.w #$40` or `subi.w #$40`, then `asr.w #7`.
+ *
+ * It is a divide by 128 rounding to nearest and away from zero, and it is
+ * written out longhand at every one of the eleven places it appears. The sign
+ * test is on the whole longword the `muls.w` produced; the rounding and the
+ * shift are on its low word only.
+ */
+const round7 = (v: number): number => sw(sw(v) + (v < 0 ? -0x40 : 0x40)) >> 7
+
 /**
  * hunk+0x220c. Give every stressed syllable of the phrase its middle pitch.
  *
@@ -579,4 +597,73 @@ export function syllablePitch(state: ProsodyState, pitch: number): void {
     }
     if (k === 0) break
   }
+}
+
+/**
+ * hunk+0x230c. How far each stressed syllable's contour swings above and below
+ * the middle {@link syllablePitch} gave it.
+ *
+ * `arr6` is the rise and `arr7` the fall, and `hunk+0x2864` finally adds them
+ * to `arr0` and `arr2` — the peak and the low that `hunk+0x1a8e` reads. Both
+ * are proportional to how far the syllable's middle sits above 110, so a
+ * syllable that has already fallen to the floor of the phrase gets no contour
+ * at all and the utterance flattens out as it ends.
+ *
+ * The shape of the swing is set by the low nibble of the cadence byte, read as
+ * a *signed* nibble: the rise is `(26·cadence + 128)/128` of the distance and
+ * the fall is `(cadence − 1)·26/128` of it. A cadence of 4 — what
+ * {@link markCadence} puts on the last primary stress of a phrase — gives a
+ * rise nearly twice the default and a fall three times it, which is the
+ * sentence-final drop.
+ *
+ * A negative nibble would invert the rise, and none is reachable: the only
+ * values anything puts in that nibble are 0 and the 4 {@link markCadence}
+ * writes, the 2 and the 0x0e of {@link markBoundaries} both coming from flag
+ * bits nothing in 33.2 sets.
+ *
+ * The fall is clipped at zero rather than allowed to go negative, so it can
+ * flatten but never turn into a second rise.
+ */
+export function syllableRange(state: ProsodyState): void {
+  const { counters } = state
+  const arr1 = state.arr[MIDDLE].subarray(state.arrAt)
+  const arr3 = state.arr[CADENCE].subarray(state.arrAt)
+  const arr4 = state.arr[DESCRIPTOR].subarray(state.arrAt)
+  const arr6 = state.arr[RISE].subarray(state.arrAt)
+  const arr7 = state.arr[FALL].subarray(state.arrAt)
+
+  for (let i = counters.last; ; i--) {
+    if (arr4[i] & SYLLABLE.PRIMARY) {
+      // 0x232e: everything below is a fraction of this.
+      const above = sw(arr1[i] - 0x6e)
+      // 0x233a: the low nibble, sign-extended by hand.
+      const nibble = arr3[i] & 0x0f
+      const cadence = sw(nibble | (nibble & 0x08 ? 0xfff0 : 0))
+
+      // 0x2346: two shifts of seven with a `muls.w` between them, so the
+      // 51/128 is applied to a value already divided by 128.
+      let rise = muls(cadence, 0x1a) + 0x80
+      rise = muls(rise, above) >>> 7
+      arr6[i] = (muls(rise, 0x33) >>> 7) & 0xff
+
+      // 0x235e: `neg.b` and `bpl`, so the clip is on the byte.
+      const fall = (-(muls(muls(cadence - 1, above), 0x1a) >>> 7)) & 0xff
+      arr7[i] = fall & 0x80 ? 0 : fall
+
+      // 0x2374: a further −38/128 on both, for a syllable carrying the marker
+      // `hunk+0x1fd8` moves onto a primary stress and no cadence of its own.
+      // Dead in 33.2 for the same reason that marker is: bit 4 of the flag
+      // byte is what puts it there, and nothing ever sets it.
+      if (arr4[i] & 0x10 && (cadence & 0xff) === 0) {
+        arr6[i] = (arr6[i] + round7(muls(sb(arr6[i]), -38))) & 0xff
+        arr7[i] = (arr7[i] + round7(muls(sb(arr7[i]), -38))) & 0xff
+      }
+    }
+    if (i === 0) break
+  }
+
+  // 0x23c0: the phrase's first stressed syllable rises by the whole distance
+  // rather than a fraction of it, so it is the one that reaches the peak the
+  // declination picked.
+  arr6[counters.first] = (arr1[counters.first] - 0x6e) & 0xff
 }

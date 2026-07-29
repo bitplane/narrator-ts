@@ -11,6 +11,7 @@ import {
   markVoiced,
   scanPhrase,
   syllablePitch,
+  syllableRange,
   type ProsodyState,
 } from './prosody.js'
 
@@ -156,6 +157,7 @@ describe.skipIf(!ready)('the prosody pass, against the device', () => {
     // phrase index — a capture can hold fewer of them than it holds phrases.
     const peaks = pairs(c, 'body/0x21b8')
     const spreads = pairs(c, 'body/0x220c')
+    const ranges = pairs(c, 'body/0x230c')
     for (const [i, [before, after]] of peaks.entries()) {
       it(`phrase pitch: ${base} stressed phrase ${i + 1}`, () => {
         const state = stateOf(before)
@@ -172,6 +174,14 @@ describe.skipIf(!ready)('the prosody pass, against the device', () => {
         const state = stateOf(spread[0])
         syllablePitch(state, pitch)
         expect(shape(state)).toEqual(shapeOf(spread[1]))
+      })
+
+      const range = ranges[i]
+      if (!range) continue
+      it(`syllable range: ${base} stressed phrase ${i + 1}`, () => {
+        const state = stateOf(range[0])
+        syllableRange(state)
+        expect(shape(state)).toEqual(shapeOf(range[1]))
       })
     }
 
