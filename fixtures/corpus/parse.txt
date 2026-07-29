@@ -1,0 +1,79 @@
+# Inputs the phoneme parser is checked on, against narrator.device itself.
+# `tools/capture-parse.py` turns these into fixtures/golden/parse.json.
+#
+# fixtures/corpus/frames.txt covers ordinary speech; this file is only the
+# awkward cases, because that is where a parser is wrong without being
+# obviously wrong. Anything the device *rejects* belongs here too: it reports
+# a 1-based character offset rather than an error code, and a port that
+# accepts the input or reports a different offset has diverged silently.
+
+# Pause collapsing: a run of pauses keeps the last, but a plain space after
+# any pause is dropped rather than replacing it.
+AA4 IH4
+AA4  IH4
+AA4 . IH4
+AA4. IH4
+AA4 ,IH4
+AA4,, IH4
+AA4 - IH4
+AA4 -. , IH4
+
+# Leading and trailing pauses. Quoted, so the spaces survive the file.
+" AA4"
+"   AA4"
+"AA4 "
+"AA4   "
+.AA4
+-AA4
+
+# A pause on its own, with no phoneme at all.
+.
+-
+,
+" "
+"  "
+
+# Terminators. '.' and '?' end the utterance mid-string; '#' and NUL end the
+# input; anything else gets a '-' appended.
+AA4.IH4
+AA4?IH4
+AA4#IH4
+"AA4#"
+"#AA4"
+
+# Emphasis brackets, which store no phoneme and set a bit on a neighbour.
+(AA4)
+(AA4)IH4
+AA4(IH4)
+((AA4))
+()
+(AA4
+")AA4"
+
+# Stress digits attach to the phoneme already written. A bare 0 is the
+# default and disappears entirely.
+AA0
+AA1
+AA9
+AA40
+
+# One-character phoneme names, which need the parser's second pass.
+R
+L
+W
+Y
+RL
+AA4R
+
+# Two-character names whose first character is also a name.
+RX
+LX
+WH
+
+# Rejections: a stress digit after something that cannot take one, and names
+# that are not in the table at all.
+S4
+4
+AA4 S4
+ZZ
+AA4ZZ

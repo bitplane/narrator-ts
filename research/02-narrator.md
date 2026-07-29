@@ -466,11 +466,83 @@ pulse would load have been zeroed in the frame array anyway.
 Recorded here because "verified against the device" is a claim this particular
 line has not earned.
 
+### The phoneme parser
+
+`hunk+0xf68`, the first stage of the front half. It turns the input string into
+three parallel byte arrays and everything downstream works from those:
+
+| | |
+|---|---|
+| `A5+0x0e8` | the phoneme index, one byte each |
+| `A5+0x2e8` | the stress digit as ASCII, or 0 |
+| `A5+0x4e8` | flags set while scanning — bit 5 for `(`, bit 4 for `)` |
+
+with `0xff` in all three as a terminator and the count in `A5+0x9a`. The first
+two are the same memory the renderer later uses as its two audio buffers, so
+the workspace is reused between stages and these have to be read at the
+parser's exit rather than afterwards.
+
+**The arrays start at index 4.** Slots 0-3 are a lead-in that later stages look
+backwards into, and slot 2 is seeded with `0x15` (QX) before the scan. A port
+that starts writing at zero gets plausible phonemes and wrong everything else.
+
+Matching is against the 112 two-byte names at `hunk+0xe88`: two characters at
+a time, falling back to one by masking the low byte off and rescanning. An
+empty name slot is not padding — a diphthong or a stop occupies several
+consecutive indices, one per frame it expands to, and only the first is named.
+So a gap in the names is a phoneme more than one frame long.
+
+Each phoneme also has an attribute longword at `hunk+0x2f08`, and there are
+**102 of them, not 112**: the last ten names are the stress digits `0`-`9`,
+which the parser peels off before any lookup. The table ends at `hunk+0x30a0`.
+`tools/extract-phonemes.py` reads both out of the binary.
+
+Three behaviours worth writing down, because each looks like a bug until you
+check it against the device:
+
+**Pauses collapse, asymmetrically.** A run of pause phonemes keeps the last,
+so `AA4 . IH4` and `AA4. IH4` agree — but a plain space *after* a pause is
+dropped rather than replacing it, and the overwritten slot keeps its stress
+and flag bytes, because the loop only clears the slot after the one it wrote.
+
+**A trailing space makes the utterance longer.** `hunk+0x10cc` drops it and
+then *falls through* to the `-` append rather than choosing between them, so
+`AA4 ` ends up one phoneme longer than `AA4` rather than one shorter.
+
+**A lone pause produces silence, not a pause.** The same decrement has no
+lower bound, so with nothing but `.` for input the write index walks back into
+the lead-in and the length test at `hunk+0x1118` then rejects the whole
+utterance. `.`, `-`, `,`, a single space and `()` all return zero.
+
+There are three exits, and they are easy to confuse: `hunk+0x1122` succeeds,
+`hunk+0x1120` returns "nothing at all", and `hunk+0x10ca` rejects. The
+rejection reports the 1-based offset of the offending character rather than an
+error code — and `hunk+0x10c2`, the label the branches actually target, is
+three instructions before that offset is computed, so stopping there reads the
+phoneme write index and gets a plausible wrong answer. The offset points at
+the character itself for a stress digit or an unknown name, but *past* it for
+an illegal phoneme, because `A0` is advanced before that test.
+
+The port is `src/narrator/parse.ts`, byte-exact against the device on all 30
+speech utterances and all 50 inputs in `fixtures/corpus/parse.txt`, rejections
+and empty results included.
+
 ## Still open
 
 - **How phonemes become frames** — the duration model, and how `rate` and
-  stress scale it. The routines are identified; their contents are not. This is
-  the whole front half of the synthesizer.
+  stress scale it. The parser is done and the rest is identified but not read:
+  stress at `0x1412` and `0x21b8`-`0x23ce`, natural-mode intonation at
+  `0x25f8`/`0x2642`/`0x2864`, the sentence-final contour at `0x2bc6`, and
+  frame generation at `0x2a6a`-`0x2d86`. `fixtures/golden/frames.json` already
+  holds the frames the device produced for each captured utterance, so this
+  has an oracle waiting for it the way the renderer did.
+- **What the attribute bits mean.** 102 longwords, and the parser only tests
+  four of them (0, 25, 26, 27). The rest are read by the stages above and are
+  recorded by number rather than guessed at — several are clearly phonetic
+  features (bit 15 on exactly R/L/RX/LX, bit 16 on exactly M/N/NX/NH, bit 12
+  on the fricatives) but "clearly" is not the standard here.
+- **The byte table at `hunk+0x30a0`**, 96 bytes between the attribute table
+  and the renderer's amplitude table, in nibble-pair-looking values.
 - **The mouth-shape stream** (`mouth_rb`), whose width/height nibbles are at
   `hunk+0x5798`. `CMD_READ` is the other half and the rig does not issue one.
 - Whether the parameter sweep's one-axis-at-a-time grid hides anything. A

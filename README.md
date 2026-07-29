@@ -44,7 +44,9 @@ tools/
   make-narrator-corpus.py  build the phoneme corpus from that inventory
   narrator-survey.py   how many distinct synthesizers are there really
   narrator-coverage.py attribute the device's code by watching which of it runs
+  extract-phonemes.py  pull the phoneme table and attribute flags from a build
   capture-frames.py    dump the renderer's input, to check the port against
+  capture-parse.py     dump the phoneme parser's output, likewise
   trace-render.py      single-step the device, logging pitch pulses and frames
   fetch-musashi.sh     vendor the 68000 core
   oracle/
@@ -121,7 +123,8 @@ the full 4,865-phrase corpus is 45 seconds per build.
 | narrator corpus | 4,865 phrases; **two synthesizers across 5 builds**, measured |
 | narrator pipeline | mapped — dispatch, stages, renderer, frame format |
 | **TypeScript renderer** | **sample-exact on all 30 captures**, voiced, unvoiced and mixed |
-| TypeScript synthesizer | front half (phonemes to frames) not started |
+| **TypeScript phoneme parser** | **byte-exact**, 30 utterances + 50 edge cases |
+| TypeScript synthesizer | stress, intonation and durations not started |
 
 Only two distinct translator behaviours exist across 1985-1991: 1.3, and
 31.7 onwards (which includes the V37 rewrite). The single difference is
