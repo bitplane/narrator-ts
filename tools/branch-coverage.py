@@ -226,6 +226,9 @@ BODY = [
     (0x259C, '0x23ce   a full stop, a flat 75'),
     (0x25AC, '0x23ce   a question, and the fall inverts'),
     (0x25DC, '0x23ce     a higher middle earlier in the phrase'),
+    (0x2608, '0x25f8 total, one per syllable'),
+    (0x2612, '0x25f8 a marked syllable'),
+    (0x261C, '0x25f8   a phrase boundary, deepen the fall'),
 ]
 
 ROUTINES = {'durations': DURATIONS, 'frames': FRAMES, 'blend': BLEND,

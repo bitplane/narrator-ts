@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
 import {
+  boundaryFall,
   markBoundaries,
   nextPhrase,
   phrasePitch,
@@ -160,6 +161,7 @@ describe.skipIf(!ready)('the prosody pass, against the device', () => {
     const spreads = pairs(c, 'body/0x220c')
     const ranges = pairs(c, 'body/0x230c')
     const links = pairs(c, 'body/0x23ce')
+    const falls = pairs(c, 'body/0x25f8')
     for (const [i, [before, after]] of peaks.entries()) {
       it(`phrase pitch: ${base} stressed phrase ${i + 1}`, () => {
         const state = stateOf(before)
@@ -192,6 +194,14 @@ describe.skipIf(!ready)('the prosody pass, against the device', () => {
         const state = stateOf(link[0])
         linkSyllables(state)
         expect(shape(state)).toEqual(shapeOf(link[1]))
+      })
+
+      const fall = falls[i]
+      if (!fall) continue
+      it(`boundary fall: ${base} stressed phrase ${i + 1}`, () => {
+        const state = stateOf(fall[0])
+        boundaryFall(state)
+        expect(shape(state)).toEqual(shapeOf(fall[1]))
       })
     }
 

@@ -784,3 +784,32 @@ export function linkSyllables(state: ProsodyState): void {
     if (i === 0) break
   }
 }
+
+/**
+ * hunk+0x25f8. Deepen the fall at a phrase boundary.
+ *
+ * The high nibble of the cadence byte is what {@link markCadence} and
+ * {@link markBoundaries} put there: `0xb0` on the phrase's last syllable and
+ * `0x90` on the one before a dash. Either adds 38/128 to that syllable's fall,
+ * so the drop at the end of a phrase is half again as deep as one in the
+ * middle of it. That, and not the cadence flag, is what a comma sounds like.
+ *
+ * The other arm takes 102/128 *off* the fall instead, and is unreachable: it
+ * wants the high nibble non-zero with bit 7 clear, and the only two values
+ * that can put anything in that nibble both set bit 7. Its two possible
+ * sources — the `2` and the `0x0e` of {@link markBoundaries} — need flag bits
+ * nothing in 33.2 sets.
+ */
+export function boundaryFall(state: ProsodyState): void {
+  const arr3 = state.arr[CADENCE].subarray(state.arrAt)
+  const arr7 = state.arr[FALL].subarray(state.arrAt)
+
+  // `D4`, which hunk+0x2160 loaded from A5+0x8c at the top and none of the
+  // seven reloads — so it is scanPhrase's count, not markBoundaries'.
+  for (let i = state.counters.syllables - 1; i >= 0; i--) {
+    const mark = arr3[i] & 0xf0
+    if (mark === 0) continue
+    const by = mark & 0x80 ? 0x26 : -0x66
+    arr7[i] = (arr7[i] + round7(muls(sb(arr7[i]), by))) & 0xff
+  }
+}
