@@ -65,6 +65,7 @@ def run_to(n, phrase, addr, opts):
                      (N.NR_MODE, 'mode'), (N.NR_SEX, 'sex'),
                      (N.NR_VOLUME, 'volume'), (N.NR_SAMPFREQ, 'sampfreq')):
         cpu.w16(n.req + off, opts[key])
+    cpu.w8(n.req + N.NR_MOUTHS, opts['mouths'])
     cpu.w16(n.req + N.NR_NMMASKS, 4)
     cpu.w32(n.req + N.NR_CHMASKS, n.masks)
 

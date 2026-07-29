@@ -34,6 +34,10 @@ DEFAULT_DEV = 'fixtures/amiga/narrator_device-33.2-1e9f46e0.bin'
 # speech parameters bolted on.
 NR_RATE, NR_PITCH, NR_MODE, NR_SEX = 48, 50, 52, 54
 NR_CHMASKS, NR_NMMASKS, NR_VOLUME, NR_SAMPFREQ = 56, 60, 62, 64
+# narrator_rb.mouths. Non-zero asks the device to build a stream of mouth
+# shapes alongside the audio, one byte per frame, for lip-syncing a face.
+# It costs an allocation and two smoothing passes (hunk+0x2e80) that are
+# skipped entirely when it is clear, so nothing else can reach them.
 NR_MOUTHS, NR_CHANMASK, NR_NUMCHAN = 66, 67, 68
 NR_SIZE = 70
 
@@ -42,7 +46,7 @@ IO_ACTUAL, IO_LENGTH, IO_DATA, IO_OFFSET = 32, 36, 40, 44
 
 # The device's own defaults, as documented for narrator.device.
 DEFAULTS = {'rate': 150, 'pitch': 110, 'mode': 0, 'sex': 0,
-            'volume': 64, 'sampfreq': 22200}
+            'volume': 64, 'sampfreq': 22200, 'mouths': 0}
 
 # Left/right channel pairs, the allocation list every narrator example uses.
 CHANNEL_MASKS = bytes([3, 5, 10, 12])
@@ -166,6 +170,7 @@ class Narrator:
         cpu.w16(self.req + NR_SEX, opts['sex'])
         cpu.w16(self.req + NR_VOLUME, opts['volume'])
         cpu.w16(self.req + NR_SAMPFREQ, opts['sampfreq'])
+        cpu.w8(self.req + NR_MOUTHS, opts['mouths'])
         cpu.w32(self.req + NR_CHMASKS, self.masks)
         cpu.w16(self.req + NR_NMMASKS, len(CHANNEL_MASKS))
 

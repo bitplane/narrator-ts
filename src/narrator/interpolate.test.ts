@@ -8,6 +8,7 @@ import {
   fillZeroRuns,
   nasalise,
   shapeFrication,
+  smoothMouths,
   smooth7,
   intrinsicPitch,
   smooth7Weighted,
@@ -24,6 +25,7 @@ const STAGES = [
   'fixtures/golden/stages.json',
   'fixtures/golden/stages-sex1.json',
   'fixtures/golden/stages-mode1.json',
+  'fixtures/golden/stages-mouths.json',
 ]
 
 const TABLES = 'fixtures/golden/tables-33.2.json'
@@ -49,6 +51,7 @@ interface Snapshot {
   phonemes: number[]
   flags: number[]
   frames: number[][] | null
+  mouths: number[] | null
 }
 interface Capture { in: string; opts?: Record<string, number>; stages?: Snapshot[] }
 
@@ -161,6 +164,15 @@ describe.skipIf(captures.length === 0)('the frame interpolator, against the devi
           frames,
         )
         expect(Array.from(frames)).toEqual(na[1].frames!.flat())
+      })
+    }
+
+    const mo = pair(c, 'frames/0x2e80-mouth')
+    if (mo?.[0].mouths && mo[1].mouths) {
+      it(`smooth mouths: ${tag}`, () => {
+        const mouths = Uint8Array.from(mo[0].mouths!)
+        smoothMouths(mouths, mouths.length)
+        expect(Array.from(mouths)).toEqual(mo[1].mouths)
       })
     }
 

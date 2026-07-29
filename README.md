@@ -137,14 +137,17 @@ python3 tools/capture-stages.py --sub --sex 1 -f fixtures/corpus/frames.txt \
     -o fixtures/golden/stages-sex1.json
 python3 tools/capture-stages.py --sub --mode 1 -f fixtures/corpus/frames.txt \
     -o fixtures/golden/stages-mode1.json
+python3 tools/capture-stages.py --sub --mouths 1 -f fixtures/corpus/frames.txt \
+    -o fixtures/golden/stages-mouths.json
 ```
 
 `--sub` also breaks inside `hunk+0x1454` and `hunk+0x29d8`, which are drivers
 of seven and nine sub-routines, and between the two halves of `hunk+0x19bc`,
 so each of those can be checked on its own. The extra runs are not redundant: `sex` swaps in a whole second table
 of formant frequencies and `mode` replaces the pitch contour with a flat one.
-Both are chosen by a *parameter*, so no corpus of phrases can reach them
-however it is written.
+`mouths` asks for the lip-sync stream and is the only way to reach
+`hunk+0x2e80` at all. All three are chosen by a *parameter*, so no corpus of
+phrases can reach them however it is written.
 
 Without those the front-half tests skip rather than fail, which is quiet
 enough to miss — `npx vitest run` should report upwards of 4,700 tests.

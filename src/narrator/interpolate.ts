@@ -372,10 +372,11 @@ export function shapeFrication(
  * "Anything else" is `NH`, the only other phoneme carrying the nasal bit, and
  * it cannot be heard: 33.2 gives it a duration of zero and six zero
  * parameters, an empty slot the parser will nonetheless accept. An utterance
- * containing one does not finish — `BAH4TNH` runs past thirty million
- * instructions in the oracle where `BAH4T` completes in a fraction of that —
- * so the `IL` column is addressed, reachable on paper and unreachable in fact.
- * Ported as written; where it hangs was not chased down.
+ * containing one does not finish: `hunk+0x15e0`'s fill loop is `subq` then
+ * `dbra`, so a duration of zero writes 65536 frames rather than none, and the
+ * device is off the end of the array long before it reaches here. `LX` and
+ * `RX` are fatal for the same reason. So the `IL` column is addressed,
+ * reachable on paper and unreachable in fact. Ported as written.
  *
  * Note the table it reads is the *primary* one, addressed absolutely. The
  * second voice's higher formants at `hunk+0x50ae` are not consulted, so with
@@ -446,5 +447,57 @@ export function nasalise(
       at += FRAME
       if (left-- === 0) break
     }
+  }
+}
+
+/**
+ * hunk+0x2e80. Smooth the mouth-shape stream.
+ *
+ * Setting `narrator_rb.mouths` asks the device for a second output alongside
+ * the audio: one byte per frame holding two 4-bit numbers, a width in the low
+ * nibble and a height in the high one, for driving a face on screen.
+ * `hunk+0x15e0` fills it in as it builds the frames, straight from the
+ * phoneme's own shape, so it steps from one value to the next as abruptly as
+ * the phonemes do. This rounds those steps off.
+ *
+ * The kernel is the same seven-tap box with the middle counted twice that
+ * {@link smooth7} runs over F2 and the pitch — but over bytes with a stride of
+ * one instead of frames with a stride of eight, and once for each nibble. It
+ * is also run **in place with no bound**: each output lands in the middle of
+ * the window it was computed from, and the six windows after it read it back.
+ * So it is a recursive filter, not the finite one it looks like, and the
+ * smoothing runs further than seven frames.
+ *
+ * Two details worth knowing. The last four bytes are never written, since the
+ * loop stops when the window's *centre* reaches the fourth from last; and the
+ * last few windows read up to six bytes past the end of the buffer, which the
+ * device allocated at exactly `total` bytes. Reading them as zero is what a
+ * freshly allocated, still-clear heap gives, and what the oracle gives; a
+ * real Amiga with a dirty pool would smooth the tail differently.
+ *
+ * Nothing else in the device can reach this routine — `hunk+0x2a3e` calls it
+ * only when `mouths` is set — so it needs `--mouths 1` to capture at all.
+ */
+export function smoothMouths(mouths: Uint8Array, total: number): void {
+  /** 0x2e88: `subq.w #5` on the frame total, then `dbra`. */
+  const count = (((total - 5) & 0xffff) + 1) & 0xffff
+
+  // 0x2e8e: the low nibble.
+  for (let k = 0; k < count; k++) {
+    let sum = 0
+    for (let j = 0; j < 3; j++) sum = (sum + (mouths[k + j] & 0x0f)) & 0xff
+    sum = (sum + 2 * (mouths[k + 3] & 0x0f)) & 0xff
+    for (let j = 4; j < 7; j++) sum = (sum + (mouths[k + j] & 0x0f)) & 0xff
+    mouths[k + 3] = (mouths[k + 3] & 0xf0) | (sum >>> 3)
+  }
+
+  // 0x2ed0: the high one, and `add.b D2,D2` then a mask instead of a shift —
+  // the same divide by eight, landing four bits further up.
+  for (let k = 0; k < count; k++) {
+    let sum = 0
+    for (let j = 0; j < 3; j++) sum = (sum + (mouths[k + j] >>> 4)) & 0xff
+    sum = (sum + 2 * (mouths[k + 3] >>> 4)) & 0xff
+    for (let j = 4; j < 7; j++) sum = (sum + (mouths[k + j] >>> 4)) & 0xff
+    mouths[k + 3] = (mouths[k + 3] & 0x0f) | (((sum << 1) & 0xf0))
   }
 }

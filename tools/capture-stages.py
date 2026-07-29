@@ -123,6 +123,12 @@ SCALARS = (0x10, 0xA0)
 FRAME_PTR, FRAME_TOTAL, FRAME = 0x28, 0x3A, 8
 MAX_FRAMES = 4096
 
+# And the mouth-shape stream at A5+0x2c, one byte per frame, which the device
+# only allocates when narrator_rb.mouths is set. hunk+0x2e80 is the only thing
+# that touches it after hunk+0x15e0 fills it, and nothing else in the device
+# can reach that routine, so --mouths 1 is the only way to test it.
+MOUTH_PTR = 0x2C
+
 
 def capture(device, phrase, opts, steps, sub=False):
     n = Narrator(device)
@@ -147,6 +153,14 @@ def capture(device, phrase, opts, steps, sub=False):
         raw = cpu.read(ptr, (total + 1) * FRAME)
         return [list(raw[i * FRAME:(i + 1) * FRAME]) for i in range(total + 1)]
 
+    def mouths():
+        """The mouth-shape stream, when one was asked for."""
+        ptr = cpu.r32(a5 + MOUTH_PTR)
+        total = cpu.r32(a5 + FRAME_TOTAL)
+        if not ptr or not 0 < total <= MAX_FRAMES:
+            return None
+        return list(cpu.read(ptr, total))
+
     def snap(name):
         count = cpu.r16(a5 + COUNT)
         take = min(max(count, 0) + 1, 0x200)
@@ -162,6 +176,7 @@ def capture(device, phrase, opts, steps, sub=False):
             # needed to read them as indices.
             'a5': a5,
             'frames': frames(),
+            'mouths': mouths(),
         })
 
     snap('parse')
