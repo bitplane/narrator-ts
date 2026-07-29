@@ -35,11 +35,14 @@ python3 tools/gen-voice.py   fixtures/amiga/narrator_device-33.2-*.bin     -o da
 python3 tools/gen-tables.py  fixtures/amiga/translator_library-33.2-1*.bin -o data
 ```
 
-**A free voice**, built from published phonetics rather than extracted, is the
-open work item. Until it exists a fresh clone cannot make a sound.
+**The free voice** is `reference/voice-free.json`, built from published
+phonetics by `tools/gen-free-voice.py` and owing nothing to anyone. It is the
+default, so a fresh clone speaks. It is not the Amiga's voice and does not
+claim to be — `reference/README.md` says what is measured and what is still
+provisional.
 
-The letter-to-sound half already has its free equivalent, checked in and
-usable by anyone:
+The letter-to-sound half has its free equivalent too, and is the default when
+no Amiga table has been extracted:
 
 ```ts
 import nrl from 'narrator-ts/reference/nrl-table.json' with { type: 'json' }
@@ -54,7 +57,8 @@ with the Amiga and is not meant to be: 64.6% of distinct words match.
 ## Command line
 
 ```sh
-npm run say -- 'hello world' -o hello.wav
+npm run say -- 'hello world' -o hello.wav          # the free voice
+npm run say -- 'hello world' -o hello.wav -V 33.2  # an extracted Amiga one
 npm run say -- -p '/HEH4LOW WER4LD' -o hello.wav
 npm run say -- 'is this a question' --pitch 200 --rate 100
 ```
@@ -71,7 +75,7 @@ Every tool under `tools/` takes `--help`.
 | translator | byte-exact against all 6 shipped builds |
 | narrator 33.2 | byte-exact front half, sample-exact renderer, end to end |
 | free letter-to-sound table | built, divergence measured |
-| free voice | **not started** |
+| free voice | **speaks**; amplitude tilt, waveform and noise still want an ear |
 
 `narrator.device` 37.7 is a rewrite and is **out of scope** — one voice done
 properly. 1.6, 31.13, 33.2 and 36.9 are sample-identical over 4,865 phrases,
