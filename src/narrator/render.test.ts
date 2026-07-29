@@ -19,7 +19,7 @@ import { render, FRAME, FRAME_BYTES } from './render.js'
 const FRAMES = 'fixtures/golden/frames.json'
 
 /** See the comment by `check` below. */
-const KNOWN_DIVERGENT = new Set(['J', 'DHIHS IHZ AH TEH4ST', 'PIY3 KEY3 JIY3'])
+const KNOWN_DIVERGENT = new Set<string>([])
 
 interface Capture {
   in: string

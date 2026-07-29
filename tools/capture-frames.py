@@ -25,7 +25,8 @@ bits 0-3 are the noise amplitude.
 
 Output is a build product, like everything else derived by running the binary.
 
-    capture-frames.py -p AA4 -p IY4 -o fixtures/golden/frames.json
+    capture-frames.py -f fixtures/corpus/frames.txt -o fixtures/golden/frames.json
+    capture-frames.py -p AA4 -p IY4 -o /tmp/two.json
 """
 import argparse
 import json
@@ -138,14 +139,22 @@ def capture(device, phrase, opts):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('-d', '--device', default=DEFAULT_DEV)
-    ap.add_argument('-p', '--phrase', action='append', required=True)
+    ap.add_argument('-p', '--phrase', action='append', default=[])
+    ap.add_argument('-f', '--file', help='one phoneme string per line; # comments')
     ap.add_argument('-o', '--out', required=True)
     for name, default in N.DEFAULTS.items():
         ap.add_argument(f'--{name}', type=int, default=default)
     args = ap.parse_args()
 
+    phrases = list(args.phrase)
+    if args.file:
+        phrases += [ln.strip() for ln in Path(args.file).read_text().splitlines()
+                    if ln.strip() and not ln.startswith('#')]
+    if not phrases:
+        ap.error('nothing to capture: pass -p or -f')
+
     opts = {k: getattr(args, k) for k in N.DEFAULTS}
-    out = [capture(args.device, p, opts) for p in args.phrase]
+    out = [capture(args.device, p, opts) for p in phrases]
     Path(args.out).write_text(json.dumps(out) + '\n')
     for rec in out:
         voiced = sum(1 for f in rec['frames'] if f[6] == 0)

@@ -102,6 +102,23 @@ export function render(input: Uint8Array, t: RenderTables): Int8Array {
   let noiseIndex = 0                       // A5+0x10
   let noiseStep = 1                        // A5+0x12, initialised at 0x53e6
   let noiseAmp = 0
+  /**
+   * Bit 31 of D6, the flag the noise path tests to decide whether to sum a
+   * voiced formant. A mixed frame *sets* it (0x5586 `bset`) and nothing ever
+   * clears it but `move.l D4,D6` on the voiced sample path (0x54aa) — there is
+   * no `bclr` anywhere. So it is sticky: after a voiced fricative, every
+   * pure-noise frame up to the next voiced one keeps behaving as mixed.
+   * Recomputing it per frame from bit 7 of the voicing byte is the obvious
+   * reading and does not match the binary.
+   *
+   * NOTE: no captured utterance distinguishes the two, and that is not for
+   * want of trying — `VF`, `DHTH` and `ZHSH` in fixtures/corpus/frames.txt
+   * exist to put a pure-noise frame directly after a mixed one. It stays
+   * hidden because 0x558c clears D3 on exactly those frames, so the voiced
+   * formant it sums is silent, and the amplitudes a differently-timed pitch
+   * pulse would load have been zeroed in the frame array anyway. This
+   * follows the instructions rather than the fixtures.
+   */
   let mixed = false
   let done = false
 
@@ -136,14 +153,15 @@ export function render(input: Uint8Array, t: RenderTables): Int8Array {
     voicing = cur[FRAME.VOICING]
 
     // 0x5574: unvoiced setup.
-    mixed = false
     noise = undefined
     if (voicing !== 0) {
-      mixed = (voicing & 0x80) !== 0
+      // 0x5580: this frame's own bit 7 decides D3, but only ever *arms* the
+      // sticky D6 flag above — see `mixed`.
+      if (voicing & 0x80) mixed = true
+      // 0x558c: without the mixed bit there is no voiced formant at all.
+      else d3 = 0
       noiseAmp = (voicing & 0x0f) << 5
       noise = t.fricatives?.[(voicing >> 4) & 7]
-      // 0x558c: without the mixed bit there is no voiced formant at all.
-      if (!mixed) d3 = 0
     }
     // 0x5562-0x5570. `ble` is signed, so this runs for a voicing byte of
     // 1..0x7f — pure noise, no mixed bit — and it *edits the frame array*:
@@ -190,6 +208,10 @@ export function render(input: Uint8Array, t: RenderTables): Int8Array {
       // swapped apart — so F3's low nibbles pass through F2's word and are
       // masked off there. Shifting after the swap gets a different number.
       const ph = (d2 >>> 4) >>> 0
+      // 0x54aa `move.l D4,D6` — and D4's bit 31 is always clear (its high word
+      // is an amplitude byte shifted left 5), so this is the one thing that
+      // disarms the sticky mixed flag.
+      mixed = false
       d7 = wave[a0 + (ph & 0xfff)] | lo(d4)
       acc = (acc + amp[d7 & (amp.length - 1)]) & 0xff
       d7 = wave[a0 + (hi(ph) & 0xfff)] | hi(d4)
@@ -197,6 +219,13 @@ export function render(input: Uint8Array, t: RenderTables): Int8Array {
       out.push(acc, acc)                    // 0x54c0-0x54c2: twice
     } else {
       // ------------------------------------------------ 0x5610, unvoiced
+      // `moveq #$0,D4` opens this loop and D4 *is* the packed F2/F3
+      // amplitudes — the noise path reuses it as a scratch index. So an
+      // unvoiced frame destroys them, and the voiced frames that follow run
+      // with F2 and F3 silent until the next pitch pulse reloads the pair.
+      // That is audible: it is why a vowel after a fricative starts as F1
+      // alone. Nothing announces it; the register is simply gone.
+      d4 = 0
       // One noise byte yields *two* samples, from its low nibble then its
       // high one — not a duplicated pair. That is why unvoiced output looks
       // undoubled while voiced output is exactly doubled.

@@ -423,14 +423,51 @@ what the front end wrote. Leaving it out is invisible until a plosive.
 advances F1 only and zeroes the F2/F3 pair each sample (`hunk+0x56ca`),
 skipping the waveform stepping entirely.
 
+### The noise path destroys the F2/F3 amplitudes
+
+`D4` holds the two amplitudes packed into one longword — and `hunk+0x5610`,
+the top of the noise loop, opens with `moveq #$0,D4`, reusing it as a scratch
+index into the fricative table. So an unvoiced frame **wipes the F2 and F3
+amplitudes**, and since amplitudes are reloaded only at a pitch pulse, every
+voiced frame between a fricative and the next pulse runs with F1 alone.
+
+That is not a rounding difference. In `J` it is 112 samples in which the real
+device emits a flat tone stepping only when the waveform pointer advances —
+runs of exactly 22 samples, `waveStep` × 2 — while a port that keeps its
+amplitudes produces a moving waveform. It is why a vowel after a fricative
+starts thin, and no amount of staring at the frame data suggests it: the
+frames say F2 and F3 have amplitude, and the register holding them is simply
+gone.
+
+This one was found by tracing rather than by reading. `tools/trace-render.py`
+single-steps the device and prints the output index at every pitch pulse
+(`hunk+0x55b6`) and every frame decode (`hunk+0x5544`); laying that against the
+same trace from the port showed the counters agreeing exactly, which ruled out
+the whole class of explanations I had been working through and left the sample
+computation as the only place to look.
+
+### One instruction that the fixtures cannot check
+
+`hunk+0x5586` sets bit 31 of `D6` — the flag the noise path tests to decide
+whether to sum a voiced formant — with a `bset`, and there is **no `bclr`
+anywhere in the routine**. The only thing that clears it is `move.l D4,D6` on
+the voiced sample path (`hunk+0x54aa`). So it is sticky: after a voiced
+fricative, every pure-noise frame up to the next voiced one still behaves as
+mixed.
+
+The port does what the instructions say. But **no captured utterance
+distinguishes it**, and `VF`, `DHTH` and `ZHSH` are in the corpus specifically
+to try: they put a pure-noise frame directly after a mixed one, and both
+readings are still byte-identical over all 30 captures. It stays hidden because
+`hunk+0x558c` clears `D3` on exactly those frames, so the voiced formant the
+sticky bit sums is silent — and the amplitudes that a differently-timed pitch
+pulse would load have been zeroed in the frame array anyway.
+
+Recorded here because "verified against the device" is a claim this particular
+line has not earned.
+
 ## Still open
 
-- **What a mixed-voicing frame leaves behind.** 21 of 24 captured utterances
-  are sample-exact, including pure fricatives, plosives and multi-word phrases.
-  The three that are not all diverge shortly after a frame whose voicing byte
-  has bit 7 set: the device freezes F1 on the following frame (which carries a
-  zero increment) and the port does not, so it is still advancing a phase the
-  device has stopped. `J`, `DHIHS IHZ AH TEH4ST` and `PIY3 KEY3 JIY3`.
 - **How phonemes become frames** — the duration model, and how `rate` and
   stress scale it. The routines are identified; their contents are not. This is
   the whole front half of the synthesizer.

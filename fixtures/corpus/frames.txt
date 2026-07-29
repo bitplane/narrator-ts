@@ -1,0 +1,61 @@
+# Phoneme strings the renderer is checked on, sample-for-sample, against
+# narrator.device itself. `tools/capture-frames.py` turns these into
+# fixtures/golden/frames.json — frames in, PCM out — and
+# src/narrator/render.test.ts diffs the TypeScript against them.
+#
+# Chosen to exercise each *path* through the render loop rather than to sound
+# like anything. Four phrases were enough to pass a renderer that had three
+# real bugs in it, so a phrase earns its place here by reaching code the
+# others do not.
+
+# Voiced only: the plain path, one formant pattern each.
+AA4
+IY4
+AA4 EH4 IY4 OW4 UW4
+
+# Pure noise: voicing 1..0x7f, the path that zeroes amplitudes in the frame
+# array and never ticks the pitch counter.
+S
+SH
+F
+TH
+
+# Voiced fricatives: voicing with bit 7 set, the mixed path.
+Z
+V
+DH
+ZH
+J
+
+# Affricates: a stop followed by a fricative inside one phoneme.
+CH
+
+# Mixed frame immediately followed by a pure-noise one. These are the only
+# entries that distinguish the sticky D6 bit-31 flag (see render.ts): a mixed
+# frame arms it and nothing but a voiced sample disarms it, so the pure-noise
+# frame after one still sums a voiced formant.
+VF
+DHTH
+ZHSH
+
+# Mixed followed by voiced, which is what showed the noise path destroys the
+# packed F2/F3 amplitudes in D4.
+ZS
+JCH
+IHZ SIH4KS
+
+# Stops, nasals, and the flap — short frames, and the intervocalic paths.
+/C
+/M
+Q
+NX
+DX
+
+# Words and sentences: many frames, every transition, and the sentence-final
+# contour.
+/HEH4LOW
+WER4LD
+KAENXGEHRUW4
+DHIHS IHZ AH TEH4ST
+SIH4KS SIH4K SLAY4MIY SNEY4KS
+PIY3 KEY3 JIY3
