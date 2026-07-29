@@ -22,7 +22,8 @@ import { audioPeriod, PAL_CLOCK, renderTables, voiceFrom, type VoiceData } from 
 import { translate } from '../src/translator/translate.js'
 import type { TranslatorTables } from '../src/translator/types.js'
 
-const DEFAULT_VERSION = '33.2'
+/** The free voice, checked in, no binary needed. */
+const FREE = 'reference/voice-free.json'
 
 /** 8-bit WAV is unsigned and the device's samples are signed. */
 function wav(samples: Int8Array, rate: number): Uint8Array {
@@ -65,7 +66,7 @@ function main(): void {
     return v === undefined ? undefined : Number(v)
   }
 
-  const version = flag('-V', '--version') ?? DEFAULT_VERSION
+  const version = flag('-V', '--version')
   const phonemesIn = flag('-p', '--phonemes')
   const out = flag('-o', '--out')
   // Anything not consumed as a flag or a flag's value is the text to speak.
@@ -87,11 +88,11 @@ function main(): void {
     console.error('  --sex 0|1     0 male, 1 female')
     console.error('  --mode 0|1    1 is the monotone robot voice')
     console.error('  --mouths      also report the lip-sync stream')
-    console.error('  -V <version>  which extracted voice to use, default 33.2')
+    console.error('  -V <version>  an extracted Amiga voice instead of the free one')
     process.exit(2)
   }
 
-  const voicePath = `data/narrator-${version}.json`
+  const voicePath = version ? `data/narrator-${version}.json` : FREE
   if (!existsSync(voicePath)) {
     console.error(`${voicePath} is missing. Build it with:`)
     console.error(`  python3 tools/gen-voice.py fixtures/amiga/narrator_device-${version}-*.bin -o data`)
@@ -102,10 +103,15 @@ function main(): void {
 
   let phonemes = phonemesIn
   if (phonemes === undefined) {
-    const rulePath = `data/translator-${version}.json`
+    // The Amiga's letter-to-sound rules if they have been extracted, and the
+    // free NRL table otherwise — which is checked in and needs no binary.
+    const extracted = `data/translator-${version ?? '33.2'}.json`
+    const rulePath = version || existsSync(extracted)
+      ? extracted
+      : 'reference/nrl-table.json'
     if (!existsSync(rulePath)) {
       console.error(`${rulePath} is missing. Build it with:`)
-      console.error(`  python3 tools/gen-tables.py fixtures/amiga/translator_library-${version}-*.bin -o data`)
+      console.error(`  python3 tools/gen-tables.py fixtures/amiga/translator_library-*.bin -o data`)
       process.exit(1)
     }
     const rules = JSON.parse(readFileSync(rulePath, 'utf8')) as TranslatorTables
