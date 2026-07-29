@@ -87,15 +87,15 @@ Texture, against the same utterance — `tools/voice-texture.py` reproduces it:
 
 | | 33.2 | free |
 |---|---|---|
-| spectral centroid | 2517 Hz | 2462 Hz |
-| energy above 4 kHz | 22.9% | 24.8% |
-| roughness | 0.18 | 0.19 |
-| zero crossings | 390 Hz | 507 Hz |
-| RMS / peak | 25.7 / 122 | 17.4 / 123 |
+| spectral centroid | 2517 Hz | 2458 Hz |
+| energy above 4 kHz | 22.9% | 22.2% |
+| roughness | 0.18 | 0.21 |
+| zero crossings | 390 Hz | 561 Hz |
+| RMS / peak | 25.7 / 122 | 25.4 / 122 |
 
-It used to be much harsher than that — centroid 3379 Hz, zero crossings
-1466. Four things were wrong, and all four were structural rather than a
-matter of taste:
+It was much harsher than that, and then it was clear but slurred — "please
+top what you want me to se". Five things were wrong, and all five were
+structural rather than a matter of taste:
 
 - **The amplitude scale was linear where it should have been decibels.** The
   stored value controls a 5-bit multiplier, so the widest range it can express
@@ -103,19 +103,25 @@ matter of taste:
   became the antilog of that, it came out within a step of 33.2's own curve at
   every point — the same agreement the vowel formants have, and for the same
   reason.
+- **The formant levels came from a truncated pole product.** Three poles keep
+  every skirt from below and lose every lift from above, which costs 20 dB at
+  F3 and puts /IY/'s F2 under the floor — the vowel loses the formant that
+  identifies it, and the diphthong glides go with it, which is what turned
+  *type* into *top*. Carried to convergence with the tract's higher poles at
+  their neutral positions, the model lands 2.9 dB from 33.2's own table on
+  average.
 - **The noise tables were filtered per byte, and the renderer reads two
   samples out of every byte.** Whatever shaping went in was destroyed by the
   split; every table measured the same, and all of them far too loud.
 - **`QX` had a vowel's amplitudes.** It is the placeholder the pitch stage
   seeds a slot with, so every utterance began with a buzz.
 - **The excitation used a third of the five bits available**, which quantises
-  a vowel to three and puts broadband hash under all of it.
-
-The remaining gap is the crest factor: 33.2 gets 3.5 dB more RMS out of the
-same peak, because its excitation is nearly flat across the pitch period where
-this one decays. That is a deliberate difference — the decay is what a formant
-of Klatt's narrowest male bandwidth actually does — but it is the reason the
-free voice is the quieter of the two at matched peak.
+  a vowel to three and puts broadband hash under all of it. It also decayed
+  from the pitch pulse when the pulse is the glottal *opening*: the second
+  half of every period came out nearly silent, peaky enough to force the whole
+  voice's level down to stay inside eight bits. Modelling both halves — the
+  ring-down of the last pulse plus Rosenberg's rising flow of the current one
+  — put the crest factor within 0.1 dB of 33.2's.
 
 There are also no allophonic rewrite rules yet, so the contextual variation —
 flapped /t/, aspirated stops, the syllabic consonants — is missing. It speaks;

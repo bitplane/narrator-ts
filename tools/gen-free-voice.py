@@ -30,6 +30,9 @@ from pathlib import Path
 PERIOD_NUMERATOR = 0x369C78
 PAL_CLOCK = 3546895
 SAMPFREQ = 22200
+# The bottom of `narrator_rb.pitch`, 65..320 Hz. The excitation has to last a
+# period at the lowest pitch the device will accept -- see waveform().
+MIN_PITCH = 65
 RATE = PAL_CLOCK / (PERIOD_NUMERATOR // SAMPFREQ)
 
 
@@ -318,32 +321,48 @@ DB_PER_STEP = 30 / 31
 BANDWIDTH = (50, 70, 110)
 
 
+# The tract's poles above F3. A uniform tube resonates at odd multiples of
+# c/4L -- 500, 1500, 2500 for the 17.5 cm male tract already used for AX -- so
+# the series carries on 3500, 4500, 5500 and up. They are fixed: articulation
+# moves the first three and leaves the rest near neutral.
+HIGHER_POLES = [500 + 1000 * k for k in range(3, 40)]
+
+
 def formant_levels(f1_hz, f2_hz, f3_hz):
     """Peak level of each formant, in dB relative to the first.
 
     A parallel synthesiser drives each resonator separately and sums them, so
     these amplitudes have to carry the spectral shape a cascade produces on
-    its own. Fant's source-filter theory (1960) gives it in two terms:
+    its own. That shape is the pole product of Fant's source-filter theory
+    (1960), evaluated at each formant in turn:
 
-      * In a uniform tube the formant peaks of the transfer function are all
-        the same height. What tilts the spectrum is the source, which falls
-        about 12 dB/octave, and radiation from the lips, which adds 6 -- a
-        net 6 dB/octave across the lot.
-      * A resonance's peak height goes as 1/B, and bandwidth grows with
-        frequency, so the higher formants are broader and lower for it.
-        Klatt's (1980) male defaults are 50, 70 and 110 Hz.
+      * the resonance's own peak is F/B, and bandwidth grows with frequency,
+        so the higher formants are broader and lower for it (Klatt's 1980
+        male defaults, 50, 70 and 110 Hz);
+      * every other pole contributes |Fk^2 / (Fk^2 - Fn^2)| -- attenuation
+        from the ones below, and a lift from the ones above. Formants that
+        sit close together raise each other, which is why /IY/'s F2 is strong
+        despite being three octaves up: F3 is right next to it.
+      * the source falls about 12 dB/octave and radiation from the lips adds
+        6, leaving a net 6 dB/octave tilt across the lot.
 
-    NOTE: the tempting refinement is to compute the pole product exactly --
-    formant n sitting under the 12 dB/octave skirt of every formant below it.
-    It is much worse, by 13 dB against 33.2's own table rather than 4, and the
-    reason is structural: a real tract has infinitely many poles above F3
-    whose combined lift at F3 is large, and a three-formant model has none of
-    them. Truncating the series keeps the attenuation and drops the
-    correction. The uniform-tube result already has both, in balance.
+    NOTE: the poles above F3 are not optional. Truncating the product at
+    three keeps all the attenuation from below and drops the lift from above,
+    which costs 20 dB at F3 and puts /IY/'s F2 below the floor -- the vowel
+    loses the formant that identifies it. Carried to convergence instead, the
+    model lands 2.9 dB from 33.2's own table on average, against 3.7 dB for
+    the uniform-tube approximation that says all peaks are equal.
     """
     fs = (f1_hz, f2_hz, f3_hz)
-    return [-6 * math.log2(fn / f1_hz) - 20 * math.log10(BANDWIDTH[n] / BANDWIDTH[0])
-            for n, fn in enumerate(fs)]
+    poles = list(fs) + HIGHER_POLES
+    out = []
+    for n, fn in enumerate(fs):
+        gain = fn / BANDWIDTH[n]
+        for k, fk in enumerate(poles):
+            if k != n:
+                gain *= abs(fk * fk / (fk * fk - fn * fn))
+        out.append(20 * math.log10(gain) - 6 * math.log2(fn / f1_hz))
+    return [db - out[0] for db in out]
 
 
 def amplitudes(f1_hz, f2_hz, f3_hz, top):
@@ -365,7 +384,7 @@ def amplitudes(f1_hz, f2_hz, f3_hz, top):
 # end to end. The values are this file's, chosen to put a vowel's three summed
 # formants a little under the rail; only their spacing comes from Fletcher.
 LOUDNESS = {
-    'vowel': -9, 'liquid': -11, 'glide': -12, 'nasal': -16,
+    'vowel': -6, 'liquid': -11, 'glide': -12, 'nasal': -16,
     'fricative': -24, 'stop': -30, 'aspirate': -28, 'consonant': -18,
 }
 
@@ -611,28 +630,53 @@ def waveform():
     cycle in window n is therefore the formant's envelope n steps after
     closure.
 
-    Nothing rings here: the oscillator is a table read, not a filter, so this
-    envelope has to *be* the resonance decay rather than the glottal flow that
-    would drive one. A formant of bandwidth B decays as exp(-pi.B.t) — Klatt
-    (1980), whose default male bandwidths are 50, 70 and 110 Hz for F1-F3.
-    One table serves all three, so it takes the narrowest: a shared envelope
-    that decays faster than the slowest formant cuts that formant off early,
-    and there is nothing else in this synthesiser to sustain it. Erring the
-    other way only leaves the wider formants ringing a little long.
+    The pulse resets at the glottal *opening*, so a window holds both halves
+    of what a formant is doing, and the envelope is their sum:
 
-    The scale matters more than the shape. Entries are five bits, and a cycle
-    that only swings a third of that is quantised to three, which is audible
-    as broadband hiss riding on every vowel. Window 0 uses the full range.
+      * the ring-down of the previous pulse, exp(-pi.B.t) at Klatt's (1980)
+        narrowest male bandwidth -- narrowest because one table serves all
+        three formants, and an envelope that decays faster than the slowest
+        of them cuts that one off early with nothing here to sustain it;
+      * the flow of the open phase now underway, which Rosenberg (1971)
+        models as a raised cosine rising to the instant of closure.
+
+    Nothing here is a filter -- the oscillator is a table read -- so the
+    envelope has to carry both. A decay alone leaves the second half of every
+    period nearly silent, which is peaky enough to force the whole voice's
+    level down to stay inside eight bits.
+
+    How long the rise is falls out of the pitch range: `narrator_rb` accepts
+    down to 65 Hz, and the excitation has to still be running at the closure
+    that ends even that long a period, so the rise spans one period at the
+    lowest pitch the device supports. Past that the glottis is shut and only
+    the ring is left. (33.2 puts its own closure at window 16. So does this,
+    which is the arithmetic agreeing rather than the table being copied.)
+
+    Scale matters as much as shape. Entries are five bits, and a cycle that
+    only swings a third of that is quantised to three, which is audible as
+    broadband hiss riding on every vowel. The peak uses the full range.
     """
-    out = []
-    # A window lasts `waveStep` sample pairs; the default voice is sex=0,
-    # so waveStep is 11 (voice.ts) and a window is 22 samples.
+    # A window lasts `waveStep` sample pairs; the default voice is sex=0, so
+    # waveStep is 11 (voice.ts) and a window is 22 samples.
     row_seconds = 2 * 11 / SAMPFREQ
-    bandwidth = min(BANDWIDTH)
+    open_rows = round(1 / MIN_PITCH / row_seconds)
+
+    def ring(row):
+        return math.exp(-math.pi * min(BANDWIDTH) * row * row_seconds)
+
+    env = []
     for row in range(64):
-        env = math.exp(-math.pi * bandwidth * row * row_seconds)
+        if row <= open_rows:
+            flow = 0.5 * (1 - math.cos(math.pi * row / open_rows))
+            env.append(ring(row) + flow)
+        else:                                   # shut: the ring is all there is
+            env.append(env[open_rows] * ring(row - open_rows))
+    peak = max(env)
+
+    out = []
+    for e in env:
         for ph in range(64):
-            v = 15.5 * env * math.sin(2 * math.pi * ph / 64)
+            v = 15.5 * e / peak * math.sin(2 * math.pi * ph / 64)
             out.append(max(-16, min(15, round(v))) & 0x1F)
     return out
 
