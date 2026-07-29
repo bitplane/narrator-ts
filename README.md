@@ -129,13 +129,21 @@ python3 tools/capture-parse.py -f fixtures/corpus/parse.txt \
     -o fixtures/golden/parse-edge.json
 python3 tools/capture-frames.py -f fixtures/corpus/frames.txt \
     -o fixtures/golden/frames.json
-python3 tools/capture-stages.py -f fixtures/corpus/frames.txt \
-                                -f fixtures/corpus/stages.txt \
+python3 tools/capture-stages.py --sub -f fixtures/corpus/frames.txt \
+                                      -f fixtures/corpus/stages.txt \
     -o fixtures/golden/stages.json
+python3 tools/capture-stages.py --sub --sex 1 -f fixtures/corpus/frames.txt \
+    -o fixtures/golden/stages-sex1.json
 ```
 
+`--sub` also breaks inside `hunk+0x1454`, which is a driver of seven
+sub-routines, so each of those can be checked on its own. The second run is
+not redundant: one branch of the frame builder swaps in a whole second table
+of formant frequencies and is chosen by a *parameter*, so no corpus of phrases
+can reach it however it is written.
+
 Without those the front-half tests skip rather than fail, which is quiet
-enough to miss — `npx vitest run` should report upwards of 500 tests.
+enough to miss — `npx vitest run` should report upwards of 1,200 tests.
 
 Two corpora feed that last pair because they are chosen for different things.
 `frames.txt` picks phrases that reach distinct paths through the *render*
