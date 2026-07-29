@@ -170,3 +170,74 @@ export function applyGain(frames: Uint8Array, gain: readonly number[]): void {
     frames[at + 5] = gain[frames[at + 5]] ?? 0
   }
 }
+
+/**
+ * hunk+0x2dca. Nudge the pitch of each phoneme's frames by what the phoneme
+ * is — the microprosody, and the most linguistically literate thing in the
+ * device.
+ *
+ * Two effects, both real and both well documented in phonetics:
+ *
+ * **Intrinsic consonant pitch.** A voiced stop lowers the pitch of its own
+ * frames and a voiceless one, a nasal or a fricative raises it. Voicing during
+ * a closure needs the larynx slack, and the pitch follows.
+ *
+ * **Intrinsic vowel pitch.** For vowels, liquids and glides the shift is
+ * `(F1 - 0x2b) / 4`, so a high F1 lowers the pitch. High vowels have a low F1
+ * and a high F0, low vowels the other way round — "beat" sits above "bat" on
+ * the same intended note. Reading F1 straight out of the frame it has already
+ * built is a neat way to get that for free.
+ *
+ * The frame byte is a *period*, so adding to it lowers the pitch.
+ */
+export function intrinsicPitch(
+  phonemes: Uint8Array,
+  durations: Uint8Array,
+  attrs: readonly number[],
+  frames: Uint8Array,
+): void {
+  /** `B` and `D`. The other voiced stops reach here as their own indices. */
+  const VOICED_STOP = [0x42, 0x45]
+  /** `Q`, the glottal stop, which is given one flat period of its own. */
+  const GLOTTAL = 0x2f
+  const GLOTTAL_PERIOD = 0xe6
+
+  let at = 0
+  for (let i = 0; ; i++) {
+    const p = phonemes[i]
+    if (p === END) return
+    const n = durations[i] & 0x3f
+
+    /** `subq.w #1` then `dbra`, so a duration of zero runs 65536 times. */
+    const each = (f: (frame: number) => void): void => {
+      const count = n === 0 ? 0x10000 : n
+      for (let k = 0; k < count; k++, at += FRAME) f(at)
+    }
+
+    if (VOICED_STOP.includes(p)) {
+      each((f) => { frames[f + 7] = (frames[f + 7] + 10) & 0xff })
+      continue
+    }
+    if (p === GLOTTAL) {
+      each((f) => { frames[f + 7] = GLOTTAL_PERIOD })
+      continue
+    }
+
+    const a = attrs[p] ?? 0
+    // 0x2e10: voiceless stops, nasals and fricatives, all by the same −6.
+    if (a & ((1 << 11) | (1 << 16) | (1 << 12))) {
+      each((f) => { frames[f + 7] = (frames[f + 7] - 6) & 0xff })
+      continue
+    }
+    // 0x2e28: bit 0 is a vowel, bits 15 and 17 the liquids and glides.
+    if (a & 0x28001) {
+      each((f) => {
+        const shift = ((((frames[f] - 0x2b) << 24) >> 24) >> 2) & 0xff
+        frames[f + 7] = (frames[f + 7] + shift) & 0xff
+      })
+      continue
+    }
+
+    at += n * FRAME
+  }
+}

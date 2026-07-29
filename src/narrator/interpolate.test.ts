@@ -7,6 +7,7 @@ import {
   fillMarkedRuns,
   fillZeroRuns,
   smooth7,
+  intrinsicPitch,
   smooth7Weighted,
 } from './interpolate.js'
 
@@ -28,7 +29,19 @@ const gain: number[] | undefined = existsSync(TABLES)
   ? (JSON.parse(readFileSync(TABLES, 'utf8')) as { amplitudeGain: number[] }).amplitudeGain
   : undefined
 
-interface Snapshot { stage: string; frames: number[][] | null }
+const PHONEMES = 'fixtures/golden/phonemes-33.2.json'
+const attrs: number[] | undefined = existsSync(PHONEMES)
+  ? (JSON.parse(readFileSync(PHONEMES, 'utf8')) as { attrs: number | null }[])
+      .filter((r) => r.attrs !== null)
+      .map((r) => r.attrs as number)
+  : undefined
+
+interface Snapshot {
+  stage: string
+  phonemes: number[]
+  flags: number[]
+  frames: number[][] | null
+}
 interface Capture { in: string; opts?: Record<string, number>; stages?: Snapshot[] }
 
 const captures: Capture[] = STAGES.filter(existsSync).flatMap(
@@ -97,6 +110,20 @@ describe.skipIf(captures.length === 0)('the frame interpolator, against the devi
         const frames = new Uint8Array(q[0].frames!.flat())
         run(frames, column)
         expect(Array.from(frames)).toEqual(q[1].frames!.flat())
+      })
+    }
+
+    const ip = pair(c, 'frames/0x2dca')
+    if (ip?.[0].frames && ip[1].frames && attrs !== undefined) {
+      it(`intrinsic pitch: ${tag}`, () => {
+        const frames = new Uint8Array(ip[0].frames!.flat())
+        intrinsicPitch(
+          Uint8Array.from(ip[0].phonemes),
+          Uint8Array.from(ip[0].flags),
+          attrs,
+          frames,
+        )
+        expect(Array.from(frames)).toEqual(ip[1].frames!.flat())
       })
     }
 

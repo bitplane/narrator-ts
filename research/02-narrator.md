@@ -942,10 +942,12 @@ breaks after each so they can be ported one at a time the way `0x1454` was:
 | | |
 |---|---|
 | `0x2aba` x4 | fill runs of zero in bytes 0, 1, 2 and 7 |
-| `0x2d54`, `0x2d86`, `0x2dca`, `0x2d54` | second passes over F2, F3 and the pitch |
+| `0x2d54` | a seven-tap box filter over F2, and later over the pitch |
+| `0x2d86` | a triangular kernel, `1 2 2 6 2 2 1`/16, over F3 |
+| `0x2dca` | intrinsic pitch — see below |
 | `0x2bc6` | re-marks a few frames, and clears a voicing byte |
 | `0x2a4a` | fill runs of `0xfe` in bytes 3, 4 and 5 |
-| `0x2d1c` | scales the amplitudes |
+| `0x2d1c` | the amplitude gain curve at `hunk+0x2cfc` |
 | `0x2ae0` | no effect on any captured utterance |
 | `0x2e80` | the mouth-shape stream, when `A5+0xdb` asks for it |
 
@@ -961,6 +963,27 @@ frequency of zero is silence and a pitch of zero is meaningless — neither can
 be a value anyone meant. The amplitude columns cannot use zero, because zero
 *is* a real amplitude: it is silence, and a stop's closure is exactly that. So
 they use `0xfe`, which is what `hunk+0x17d6` writes.
+
+### Microprosody
+
+`hunk+0x2dca` nudges each phoneme's pitch by what the phoneme *is*, and it is
+the most linguistically literate thing in the device. The frame byte is a
+period, so adding to it lowers the pitch.
+
+| | |
+|---|---|
+| `B`, `D` | +10 — lower |
+| voiceless stops, nasals, fricatives | −6 — higher |
+| `Q`, the glottal stop | a flat 0xe6 |
+| vowels, liquids, glides | `(F1 - 0x2b) / 4` |
+
+Both effects are real and both are well documented. Voicing through a closure
+needs a slack larynx, so voiced obstruents carry a lower F0 than voiceless
+ones. And for vowels the shift is read straight out of **F1 in the frame the
+device has already built** — high vowels have a low F1 and a high F0, low
+vowels the other way round, so "beat" sits above "bat" on the same intended
+note. Taking it from F1 rather than from a table of its own gets that for
+free, and gets it right for the interpolated frames between phonemes too.
 
 ## Still open
 

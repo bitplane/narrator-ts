@@ -142,6 +142,14 @@ INTERPOLATE = [
     (0x2D52, '0x2d1c gain curve done'),
     (0x2D3A, '0x2d1c a marked frame, left alone'),
     (0x2D3E, '0x2d1c three amplitudes through the curve'),
+    (0x2DEA, '0x2dca intrinsic pitch done'),
+    (0x2E38, '0x2dca voiced stop, +10'),
+    (0x2E48, '0x2dca voiceless stop, -6'),
+    (0x2E4C, '0x2dca nasal, -6'),
+    (0x2E50, '0x2dca fricative, -6'),
+    (0x2E54, '0x2dca glottal stop, flat'),
+    (0x2E68, '0x2dca vowel or liquid, by F1'),
+    (0x2E32, '0x2dca no adjustment'),
 ]
 
 ROUTINES = {'durations': DURATIONS, 'frames': FRAMES, 'blend': BLEND,
