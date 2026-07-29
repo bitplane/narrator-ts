@@ -69,7 +69,7 @@ SUBSTAGES = [
     # and period pass that reads them.
     (0x19BE, 'contour/0x19c4'),
     (0x19C2, 'contour/0x1a8e'),
-    # hunk+0x29d8 is a driver too, of eight sub-routines over the frame array.
+    # hunk+0x29d8 is a driver too, of nine sub-routines over the frame array.
     # The first four are the same routine run on one byte column each.
     (0x29F0, 'frames/fill-f1'),      # 0x2aba on byte 0
     (0x29FA, 'frames/fill-f2'),      # 0x2aba on byte 1

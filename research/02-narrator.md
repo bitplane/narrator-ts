@@ -936,8 +936,9 @@ That is the robot voice.
 
 ### `hunk+0x29d8` is a driver too
 
-Eight sub-routines over the frame array, and `capture-stages.py --sub` now
-breaks after each so they can be ported one at a time the way `0x1454` was:
+Nine sub-routines over the frame array, twelve calls, and
+`capture-stages.py --sub` now breaks after each so they can be ported one at a
+time the way `0x1454`'s were:
 
 | | |
 |---|---|
@@ -987,18 +988,17 @@ free, and gets it right for the interpolated frames between phonemes too.
 
 ## Still open
 
-- **How phonemes become frames.** The parser, both rewrite passes, the onset
-  marker, the stress spreader and the duration assignment are done. What is
-  left is the pitch machinery (`0x1ee0` and `0x2160`, filling the eight
-  parameter arrays per syllable); the two coarticulation routines at the end
-  of `0x1454` (`0x172a` and `0x17d6`, which bend each phoneme's block of
-  identical frames into its neighbours and are the only reason the output is
-  not a sequence of steady states); `0x19bc`, which masks the stress byte to
-  its high nibble and writes a contour code 1..6 into the low one before
-  calling `0x1a8e`; and seven of `0x29d8`'s eight sub-routines.
-  `fixtures/golden/frames.json` already holds the frames the device produced
-  for each captured utterance, so this has an oracle waiting for it the way
-  the renderer did.
+- **How phonemes become frames.** Two gaps left, both with an oracle already
+  in place. The **pitch machinery** — `0x1ee0` and `0x2160`, and the three
+  routines they call at `0x1f02`, `0x1fd8` and `0x20bc` — fills the four
+  per-syllable arrays that `0x1a8e` reads, and is the last stage of the front
+  half that has not been read at all. And **three of `0x29d8`'s nine
+  sub-routines**: `0x2bc6`, which re-marks a few frames and clears a voicing
+  byte; `0x2ae0`, which changes nothing on any captured utterance and so needs
+  an input that provokes it before it can be checked; and `0x2e80`, the
+  mouth-shape stream, which needs a `CMD_READ` the rig does not issue.
+  `capture-stages.py --sub` breaks after each, so they can be taken one at a
+  time.
 - **What the attribute bits mean.** 102 longwords, and the parser only tests
   four of them (0, 25, 26, 27). The rest are read by the stages above and are
   recorded by number rather than guessed at — several are clearly phonetic
