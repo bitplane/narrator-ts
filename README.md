@@ -75,7 +75,7 @@ Every tool under `tools/` takes `--help`.
 | translator | byte-exact against all 6 shipped builds |
 | narrator 33.2 | byte-exact front half, sample-exact renderer, end to end |
 | free letter-to-sound table | built, divergence measured |
-| free voice | **speaks**; amplitude tilt, waveform and noise still want an ear |
+| free voice | **speaks**; texture within a few percent of 33.2's, no allophonic rules yet |
 
 `narrator.device` 37.7 is a rewrite and is **out of scope** — one voice done
 properly. 1.6, 31.13, 33.2 and 36.9 are sample-identical over 4,865 phrases,

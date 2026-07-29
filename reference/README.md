@@ -83,22 +83,40 @@ against is stated rather than assumed — the attribute words, derived from
 phonetic features alone, agree with 33.2's on 98% of their bits, and an
 utterance comes out within 7% of the same length.
 
-**Known wrong, and measured:** it is harsher than 33.2. Against the same
-utterance —
+Texture, against the same utterance — `tools/voice-texture.py` reproduces it:
 
 | | 33.2 | free |
 |---|---|---|
-| spectral centroid | 2418 Hz | 3379 Hz |
-| energy above 4 kHz | 22.6% | 34.9% |
-| zero crossings | 607 Hz | 1466 Hz |
-| RMS | 23.7 | 64.3 |
+| spectral centroid | 2517 Hz | 2462 Hz |
+| energy above 4 kHz | 22.9% | 24.8% |
+| roughness | 0.18 | 0.19 |
+| zero crossings | 390 Hz | 507 Hz |
+| RMS / peak | 25.7 / 122 | 17.4 / 123 |
 
-33.2's zero-crossing rate tracks F1 almost alone, which says how completely
-the first formant dominates there. Two suspects, in order: the amplitude
-tilt is still too gentle, and the glottal waveform envelope in
-`waveform()` peaks mid-period when a real pulse is strongest immediately
-after closure — its first row comes out silent, which is backwards.
+It used to be much harsher than that — centroid 3379 Hz, zero crossings
+1466. Four things were wrong, and all four were structural rather than a
+matter of taste:
 
-Reproduce the numbers with `tools/voice-texture.py`. There are also no allophonic rewrite
-rules yet, so the contextual variation — flapped /t/, aspirated stops, the
-syllabic consonants — is missing. It speaks; it is not finished.
+- **The amplitude scale was linear where it should have been decibels.** The
+  stored value controls a 5-bit multiplier, so the widest range it can express
+  is 30 dB and the 31 steps across it are ~1 dB each. Once `gain_curve()`
+  became the antilog of that, it came out within a step of 33.2's own curve at
+  every point — the same agreement the vowel formants have, and for the same
+  reason.
+- **The noise tables were filtered per byte, and the renderer reads two
+  samples out of every byte.** Whatever shaping went in was destroyed by the
+  split; every table measured the same, and all of them far too loud.
+- **`QX` had a vowel's amplitudes.** It is the placeholder the pitch stage
+  seeds a slot with, so every utterance began with a buzz.
+- **The excitation used a third of the five bits available**, which quantises
+  a vowel to three and puts broadband hash under all of it.
+
+The remaining gap is the crest factor: 33.2 gets 3.5 dB more RMS out of the
+same peak, because its excitation is nearly flat across the pitch period where
+this one decays. That is a deliberate difference — the decay is what a formant
+of Klatt's narrowest male bandwidth actually does — but it is the reason the
+free voice is the quieter of the two at matched peak.
+
+There are also no allophonic rewrite rules yet, so the contextual variation —
+flapped /t/, aspirated stops, the syllabic consonants — is missing. It speaks;
+it is not finished.

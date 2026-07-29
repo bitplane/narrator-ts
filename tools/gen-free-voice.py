@@ -91,6 +91,14 @@ VOWELS = {
     'QX': (500, 1500, 2500),
 }
 
+# QX is a placeholder, not a sound. The pitch stage seeds a slot with it
+# before every scan (hunk+0x14c2, research/02-narrator.md), so it turns up at
+# the head of utterances that never asked for it -- it has to be silent or
+# everything starts with a buzz. It keeps a vowel's attributes and duration,
+# because that is the role it plays for the stages upstream, and loses only
+# its amplitudes.
+SILENT = {'QX'}
+
 # Nucleus, then offglide, for the six two-slot vowels.
 DIPHTHONGS = {
     'EY': ((530, 1840, 2480), (350, 2200, 2900)),
@@ -294,45 +302,71 @@ def attributes():
 
 
 # ---------------------------------------------------------------------------
-# Formant amplitudes, 0-31, which hunk+0x2d1c then puts through a convex gain
-# curve - so this scale is perceptual and roughly logarithmic already.
+# Formant amplitudes.
 #
-# In a parallel formant synthesiser each resonator is driven separately, so
-# the amplitudes carry the spectral tilt that a cascade would get for free.
-# The glottal source falls about 12 dB/octave and radiation from the lips adds
-# 6, leaving a net 6 dB/octave: each doubling of frequency costs roughly a
-# quarter of the scale. That is the model below, and it is the one number here
-# most in need of an ear rather than an argument.
-# The first formant carries a vowel. A 6 dB/octave source tilt is what the
-# physics gives, but a parallel synthesiser summing three oscillators at equal
-# weight is not a vocal tract: the higher resonators have no cascade above
-# them to roll off, so they arrive far louder than the same tilt would put
-# them in a real spectrum. Doubling the slope is the correction, and the
-# result is what the ear expects -- F1 dominant, F2 and F3 colouring it.
-#
-# Measured rather than argued: at 3.0 the output had 2.7x the zero-crossing
-# rate of 33.2's and a spectral centroid 1200 Hz higher, which is what
-# "harsh" sounds like.
-VOWEL_A1 = 26
-TILT = 6.0
+# The stored value is five bits and hunk+0x2d1c puts it through the gain curve
+# below before the renderer multiplies by it, so this scale is a *control*
+# scale and the curve decides what it means. Making it decibels is forced by
+# the arithmetic: the thing being controlled is a linear 5-bit multiplier, so
+# the widest range expressible is 20.log10(31/1) = 30 dB, and 31 steps across
+# it is 0.97 dB a step. Loudness is logarithmic anyway (Fechner), so an even
+# decibel scale is also the one that spends its steps where the ear can hear
+# the difference.
+DB_PER_STEP = 30 / 31
+
+# Klatt (1980) default formant bandwidths for a male voice, in Hz.
+BANDWIDTH = (50, 70, 110)
 
 
-def amplitudes(f1_hz, f2_hz, f3_hz, top=VOWEL_A1):
-    """Relative amplitudes for a formant triple, in the device's 0-31 units."""
+def formant_levels(f1_hz, f2_hz, f3_hz):
+    """Peak level of each formant, in dB relative to the first.
+
+    A parallel synthesiser drives each resonator separately and sums them, so
+    these amplitudes have to carry the spectral shape a cascade produces on
+    its own. Fant's source-filter theory (1960) gives it in two terms:
+
+      * In a uniform tube the formant peaks of the transfer function are all
+        the same height. What tilts the spectrum is the source, which falls
+        about 12 dB/octave, and radiation from the lips, which adds 6 -- a
+        net 6 dB/octave across the lot.
+      * A resonance's peak height goes as 1/B, and bandwidth grows with
+        frequency, so the higher formants are broader and lower for it.
+        Klatt's (1980) male defaults are 50, 70 and 110 Hz.
+
+    NOTE: the tempting refinement is to compute the pole product exactly --
+    formant n sitting under the 12 dB/octave skirt of every formant below it.
+    It is much worse, by 13 dB against 33.2's own table rather than 4, and the
+    reason is structural: a real tract has infinitely many poles above F3
+    whose combined lift at F3 is large, and a three-formant model has none of
+    them. Truncating the series keeps the attenuation and drops the
+    correction. The uniform-tube result already has both, in balance.
+    """
+    fs = (f1_hz, f2_hz, f3_hz)
+    return [-6 * math.log2(fn / f1_hz) - 20 * math.log10(BANDWIDTH[n] / BANDWIDTH[0])
+            for n, fn in enumerate(fs)]
+
+
+def amplitudes(f1_hz, f2_hz, f3_hz, top):
+    """The three stored amplitudes for a formant triple.
+
+    `top` is how far below full scale the loudest formant sits, in dB.
+    """
     if not f1_hz:
         return 0, 0, 0
-    a = [top, 0, 0]
-    for k, hz in enumerate((f2_hz, f3_hz), start=1):
-        a[k] = max(0, min(31, round(top - TILT * math.log2(hz / f1_hz))))
-    return tuple(a)
+    return tuple(max(0, min(31, round(31 + (top + db) / DB_PER_STEP)))
+                 for db in formant_levels(f1_hz, f2_hz, f3_hz))
 
 
-# How loud each class is overall. A vowel is the reference; a nasal loses
-# most of its energy to the antiformant of the closed oral cavity; a stop at
-# closure is silence, and the burst is a separate slot.
+# How loud each class is, in dB below full scale. The ordering is the relative
+# phoneme powers of Sacia and Beck (1926), as tabulated by Fletcher, *Speech
+# and Hearing in Communication* (1953): vowels loudest, then the liquids and
+# glides a few dB down, nasals below those, the sibilants below them, and the
+# other fricatives and the stop bursts at the bottom -- a range of about 30 dB
+# end to end. The values are this file's, chosen to put a vowel's three summed
+# formants a little under the rail; only their spacing comes from Fletcher.
 LOUDNESS = {
-    'vowel': 26, 'liquid': 25, 'glide': 24, 'nasal': 22,
-    'fricative': 14, 'stop': 8, 'aspirate': 12, 'consonant': 20,
+    'vowel': -9, 'liquid': -11, 'glide': -12, 'nasal': -16,
+    'fricative': -24, 'stop': -30, 'aspirate': -28, 'consonant': -18,
 }
 
 # The eight noise tables, by place of articulation. Bits 4-6 of the voicing
@@ -361,7 +395,7 @@ def voice_and_amps(f1, f2, f3):
         feats = set(F.get(n, '').split()) if n else set()
         if not n and i:
             feats = set(F.get(NAMES[i - 1], '').split())
-        top = 0
+        top = LOUDNESS['consonant']
         for cls in ('vowel', 'liquid', 'glide', 'nasal', 'fricative',
                     'stop', 'aspirate', 'consonant'):
             if cls in feats:
@@ -371,11 +405,22 @@ def voice_and_amps(f1, f2, f3):
             hz = (f1[i], f2[i], f3[i] * 2)
             back = tuple(v * RATE / 2048 for v in hz)
             a1[i], a2[i], a3[i] = amplitudes(*back, top=top)
+        # A voiceless continuant has no glottal source, so there is nothing for
+        # a formant amplitude to scale -- all of its sound is the noise table.
+        # The renderer only silences the voiced branch on a frame that is
+        # already fully unvoiced (0x558c), so leaving these set buzzes through
+        # every transition into and out of the fricative. Stops keep theirs:
+        # a release burst does excite the tract, and that is what the voicing
+        # byte's bit 7 is for.
+        if feats & {'fricative', 'aspirate'} and 'voiced' not in feats:
+            a1[i] = a2[i] = a3[i] = 0
+        if (n or NAMES[i - 1]) in SILENT:
+            a1[i] = a2[i] = a3[i] = 0
         # A nasal's oral cavity is closed, so the antiformant flattens
-        # everything above the murmur.
+        # everything above the murmur (Fujimura 1962).
         if 'nasal' in feats:
-            a2[i] = max(0, a2[i] - 8)
-            a3[i] = max(0, a3[i] - 10)
+            a2[i] = max(0, a2[i] - round(8 / DB_PER_STEP))
+            a3[i] = max(0, a3[i] - round(10 / DB_PER_STEP))
 
         key = n or NAMES[i - 1]
         if key in NOISE:
@@ -529,12 +574,15 @@ def mouths():
 # ---------------------------------------------------------------------------
 # The renderer's own tables.
 def gain_curve():
-    """32 entries mapping the perceptual amplitude scale onto a linear one.
+    """hunk+0x2cfc: 32 entries turning the control scale into a multiplier.
 
-    Loudness goes roughly as intensity to the 0.3, so the inverse is a power
-    curve. Anchored at both ends: silence is silence and full scale is full.
+    The control scale is decibels -- see DB_PER_STEP -- so this is the
+    antilog. Zero is silence rather than -30 dB, because the scale has to be
+    able to switch a formant off; every other step is at least 1, because a
+    multiplier of 0 is silence and there is nothing between them.
     """
-    return [round(31 * (i / 31) ** 2.4) for i in range(32)]
+    return [0] + [max(1, round(31 * 10 ** (-(31 - i) * DB_PER_STEP / 20)))
+                  for i in range(1, 32)]
 
 
 def amp_table():
@@ -553,58 +601,111 @@ def amp_table():
 
 
 def waveform():
-    """hunk+0x4aae: the excitation, as a lookup indexed by phase.
+    """hunk+0x4aae: the excitation, as 64 windows of 64 entries.
 
-    The renderer holds a phase accumulator per formant and reads this table
-    through it, stepping the base pointer once per `waveStep` samples as the
-    pitch period runs on. So the table is a resonator's impulse response laid
-    out in time: one cycle across each 64-byte window, decaying as the window
-    advances, which is what a formant excited by a glottal pulse does.
+    Each formant has its own phase accumulator, and the renderer reads this
+    table at `base + phase` — so one 64-byte window is a single cycle of that
+    formant's output. The base steps on by 0x40 every `waveStep` sample pairs
+    and resets to zero at each glottal pulse (render.ts `pitchPulse`), which
+    makes the window index time-within-the-pitch-period. The amplitude of the
+    cycle in window n is therefore the formant's envelope n steps after
+    closure.
 
-    The envelope is Rosenberg's (1971) glottal pulse: a rising quarter-cosine
-    to the instant of closure, then a faster fall. Values are unsigned five
-    bits, which the amplitude table above reads back as signed.
+    Nothing rings here: the oscillator is a table read, not a filter, so this
+    envelope has to *be* the resonance decay rather than the glottal flow that
+    would drive one. A formant of bandwidth B decays as exp(-pi.B.t) — Klatt
+    (1980), whose default male bandwidths are 50, 70 and 110 Hz for F1-F3.
+    One table serves all three, so it takes the narrowest: a shared envelope
+    that decays faster than the slowest formant cuts that formant off early,
+    and there is nothing else in this synthesiser to sustain it. Erring the
+    other way only leaves the wider formants ringing a little long.
+
+    The scale matters more than the shape. Entries are five bits, and a cycle
+    that only swings a third of that is quantised to three, which is audible
+    as broadband hiss riding on every vowel. Window 0 uses the full range.
     """
     out = []
-    rows = 64
-    for row in range(rows):
-        t = row / rows
-        # Rosenberg: open phase rises, closure is abrupt, then it decays.
-        env = math.sin(math.pi * t) ** 1.6 * math.exp(-2.6 * t)
+    # A window lasts `waveStep` sample pairs; the default voice is sex=0,
+    # so waveStep is 11 (voice.ts) and a window is 22 samples.
+    row_seconds = 2 * 11 / SAMPFREQ
+    bandwidth = min(BANDWIDTH)
+    for row in range(64):
+        env = math.exp(-math.pi * bandwidth * row * row_seconds)
         for ph in range(64):
-            v = math.sin(2 * math.pi * ph / 64) * env
-            out.append(round(15.5 + 15.5 * v) & 0x1F)
+            v = 15.5 * env * math.sin(2 * math.pi * ph / 64)
+            out.append(max(-16, min(15, round(v))) & 0x1F)
     return out
 
 
-def fricatives(seed=0x1F2E3D4C):
-    """Eight noise tables, one per place of articulation.
+# The eight noise tables: where the turbulence resonates, and how loud it is.
+#
+# Frication is noise at a constriction, shaped by the cavity in front of it.
+# The centre frequencies are the measured ones: Hughes and Halle, 'Spectral
+# Properties of Fricative Consonants' (JASA 28, 1956) and Strevens, 'Spectra
+# of Fricative Noise in Human Speech' (Language and Speech 3, 1960) for the
+# fricatives; the burst spectra are the compact/diffuse pattern of Halle,
+# Hughes and Radley (JASA 29, 1957) -- alveolar high, velar compact in the
+# mid, bilabial diffuse and falling.
+#
+# The levels divide the same way the phonetics does: a sibilant has an
+# obstacle downstream of the constriction -- the teeth -- to turn the jet into
+# sound, and the non-sibilants have nothing, which is why /f/ and /th/ are the
+# quietest sounds in the language (Fletcher 1953, again). One anchor is
+# measured rather than derived: the sibilant level is set so /S/ comes out
+# 16 dB under a vowel, which is Fletcher's ratio for /s/ against /aw/.
+FRICATIVE = [
+    (1000, 1.5),   # 0  neutral, diffuse -- the slot nothing selects
+    (5500, 3.0),   # 1  alveolar sibilant, /S/ and /Z/
+    (3000, 3.0),   # 2  postalveolar sibilant, /SH/, /ZH/, the affricates
+    (1500, 1.5),   # 3  labiodental, /F/ and /V/
+    (6000, 1.5),   # 4  dental, /TH/ and /DH/ -- diffuse and weaker still
+    (800, 2.0),    # 5  bilabial burst, /P/ and /B/
+    (4000, 2.0),   # 6  alveolar burst, /T/ and /D/
+    (2000, 2.0),   # 7  velar burst, /K/ and /G/
+]
 
-    Frication is turbulence at a constriction, so the spectrum is broadband
-    but shaped by the cavity in front of it: a short front cavity (alveolar,
-    /s/) resonates high, a long one (labial, /f/) is flatter and quieter.
-    Modelled as white noise through a one-pole filter, the pole moving from
-    low to high across the eight, then quantised the way the device's own are.
+
+def fricatives(seed=0x1F2E3D4C):
+    """hunk+0x4c2e: eight 480-byte noise tables.
+
+    The renderer takes *two* samples from every byte -- the low nibble then
+    the high one, each doubled into the five-bit waveform scale (render.ts
+    0x5648). So a byte is two consecutive samples at the full rate, not one:
+    filtering a byte sequence and then splitting it into nibbles shapes
+    nothing, because the two halves of one smooth value are unrelated as
+    samples. 960 samples go in, packed two to a byte.
+
+    Klatt's (1980) frication model is white noise through a resonator, which
+    is what FRICATIVE parameterises. Amplitude is set by rms rather than by
+    peak: peak-normalising noise makes the loudness depend on whichever
+    excursion happened to be largest.
 
     A fixed generator rather than captured noise: reproducible, and nobody's.
     """
     tables = []
     state = seed
+
     def rnd():
         nonlocal state
         state = (state * 1103515245 + 12345) & 0x7FFFFFFF
         return (state >> 16) / 32768.0 - 0.5
-    for k in range(8):
-        # k=0 flat, rising to a high-passed hiss at k=7
-        pole = -0.85 + 0.24 * k
-        y = 0.0
+
+    for centre, level in FRICATIVE:
+        # A two-pole resonator, bandwidth 1 kHz -- frication is a broad hump,
+        # not a whistle.
+        r = math.exp(-math.pi * 1000 / SAMPFREQ)
+        c = 2 * r * math.cos(2 * math.pi * centre / SAMPFREQ)
+        y1 = y2 = 0.0
         raw = []
-        for _ in range(480):
-            y = pole * y + rnd()
+        for _ in range(960):
+            y = rnd() + c * y1 - r * r * y2
+            y2, y1 = y1, y
             raw.append(y)
-        peak = max(abs(v) for v in raw) or 1.0
-        tables.append([max(0, min(255, round(128 + 127 * v / peak)))
-                       for v in raw])
+        rms = math.sqrt(sum(v * v for v in raw) / len(raw)) or 1.0
+        # Quantise to the even values the doubling can reach, -16 to +14.
+        q = [max(-16, min(14, 2 * round(level * v / rms / 2))) for v in raw]
+        n = [(s >> 1) & 0x0F for s in q]
+        tables.append([n[i] | (n[i + 1] << 4) for i in range(0, len(n), 2)])
     return tables
 
 
