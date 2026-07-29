@@ -33,9 +33,13 @@ jobs:
           registry-url: https://registry.npmjs.org
 
       # Trusted publishing needs npm >= 11.5.1, and setup-node ships whatever
-      # npm came with the Node release. Pinning it here rather than trusting
-      # that to be new enough.
-      - run: npm install -g npm@latest
+      # npm came with the Node release -- so it has to be pinned. Not to
+      # @latest, though: npm 12.0.0's own tarball is missing the `sigstore`
+      # module that libnpmpublish requires, so it dies with MODULE_NOT_FOUND
+      # at the moment it tries to sign, *after* the tests have passed and the
+      # tarball is built. A dry run does not reach that code path and so does
+      # not catch it. 11.x bundles sigstore and is what this pins to.
+      - run: npm install -g npm@11
       - run: npm --version
 
       - run: npm ci
