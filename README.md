@@ -129,7 +129,8 @@ the full 4,865-phrase corpus is 45 seconds per build.
 | **TypeScript renderer** | **sample-exact on all 30 captures**, voiced, unvoiced and mixed |
 | **TypeScript phoneme parser** | **byte-exact**, 30 utterances + 50 edge cases |
 | **TypeScript rewrite engine** | **byte-exact**, both allophonic passes, 30 utterances |
-| TypeScript synthesizer | stress, intonation and durations not started |
+| **TypeScript stress spreader** | **byte-exact**, 30 utterances |
+| TypeScript synthesizer | intonation and durations not started |
 
 Only two distinct translator behaviours exist across 1985-1991: 1.3, and
 31.7 onwards (which includes the V37 rewrite). The single difference is

@@ -604,6 +604,47 @@ either side of both passes for all 30 captured utterances. Ten of them change
 in the first pass and eight in the second, so the rest are testing that rules
 correctly decline to fire.
 
+### The stress spreader
+
+`hunk+0x11bc`, run after the first rewrite pass so it sees allophones rather
+than what was typed. The parser leaves a stress digit on the single phoneme it
+was written after; this turns that into something spread across a syllable.
+
+It walks the array vowel by vowel — where "vowel" is attribute bit 0, except
+that `LX` and `RX` are excluded by index (`0x1206`) despite having the bit —
+and from the second vowel of a span onwards writes a descriptor forward to the
+midpoint between the previous vowel and this one. At a space or a phrase-final
+pause it closes the span, marks the vowel in the flag array, and for a pause
+(but not a space) marks every phoneme from the vowel to the pause.
+
+| bit | in | meaning |
+|---|---|---|
+| `0x80` | stress | the first phoneme of a spread |
+| `0x40` | stress | a spread byte |
+| `0x20` | stress | the source vowel carried a stress digit |
+| `0x80` | flags | this phoneme is its syllable's vowel |
+| `0x40` | flags | between the last vowel and a phrase-final pause |
+
+Three things here are not what the code appears to say:
+
+**The `ori.b #$80` at `0x124c` is outside the loop.** The `dbra` at `0x1258`
+branches to `0x1252`, one instruction past it, so only the *first* byte of a
+spread is marked. Reading it as the loop's top marks the whole span, which is
+wrong on every word with more than one syllable and right on every word with
+one — so `AA4` and the fricatives all still pass.
+
+**The descriptor carries across spans.** `0x1290` clears only its `0x20` bit
+before recomputing, so the `0x40` set in a previous span survives into the
+next. It reads as one running value rather than one per syllable.
+
+**A space leaves the attribute register stale.** `0x11e4` branches to the
+boundary handler without looking the phoneme up, so the `btst #$19` at
+`0x12a6` tests whatever preceded the space. That is exactly what makes a space
+close a span without marking a phrase end, while `.` and `-` do.
+
+`dbra` with a count of -1 means 65536 iterations, not none, so the port keeps
+the 68k's loop shape rather than turning it into a `for`.
+
 ## Still open
 
 - **How phonemes become frames** — the duration model, and how `rate` and
