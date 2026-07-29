@@ -45,6 +45,25 @@ STAGES = [
     (0x0872, 'frames'),         # 0x29d8
 ]
 
+# hunk+0x1454 is itself a driver of seven sub-routines, so the same trick
+# works one level down: these are the return addresses inside it, and
+# capturing them lets each be ported and checked on its own rather than only
+# at the far end of all seven.
+#
+#   0x1970  first, and the likeliest home of the main duration assignment
+#   0x1492  gives the continuation slots rewrite pass 2 created their own
+#           durations from hunk+0x3806, inheriting the previous stress
+#   0x1586, 0x15e0, 0x1472, 0x172a, 0x17d6  not yet read
+SUBSTAGES = [
+    (0x1458, 'dur/0x1970'),
+    (0x145C, 'dur/0x1492'),
+    (0x1460, 'dur/0x1586'),
+    (0x1464, 'dur/0x15e0'),
+    (0x1466, 'dur/0x1472'),
+    (0x146A, 'dur/0x172a'),
+    (0x146E, 'dur/0x17d6'),
+]
+
 PHONEMES, STRESS, FLAGS, COUNT = 0x0E8, 0x2E8, 0x4E8, 0x9A
 
 # hunk+0x1e1c points nine registers at eight 0x80-byte arrays running from
@@ -56,7 +75,7 @@ PARAM_LEN = 0x80
 SCALARS = (0x20, 0x90)
 
 
-def capture(device, phrase, opts, steps):
+def capture(device, phrase, opts, steps, sub=False):
     n = Narrator(device)
     if n.open():
         raise SystemExit('narrator.device refused to open')
@@ -65,7 +84,7 @@ def capture(device, phrase, opts, steps):
     if not capture_frames.run_to(n, phrase, h0 + STAGES[0][0], opts):
         return {'in': phrase, 'ok': False}
 
-    marks = {h0 + off: name for off, name in STAGES}
+    marks = {h0 + off: name for off, name in STAGES + (SUBSTAGES if sub else [])}
     last = h0 + STAGES[-1][0]
     a5 = cpu.get(A5)
     out = []
@@ -107,6 +126,8 @@ def main():
     ap.add_argument('-f', '--file')
     ap.add_argument('-o', '--out', required=True)
     ap.add_argument('-n', '--steps', type=int, default=30_000_000)
+    ap.add_argument('--sub', action='store_true',
+                    help="also break inside hunk+0x1454's seven sub-routines")
     for name, default in N.DEFAULTS.items():
         ap.add_argument(f'--{name}', type=int, default=default)
     args = ap.parse_args()
@@ -118,7 +139,7 @@ def main():
         ap.error('nothing to capture: pass -p or -f')
 
     opts = {k: getattr(args, k) for k in N.DEFAULTS}
-    out = [capture(args.device, p, opts, args.steps) for p in phrases]
+    out = [capture(args.device, p, opts, args.steps, args.sub) for p in phrases]
     Path(args.out).write_text(json.dumps(out) + '\n')
     for r in out:
         got = len(r.get('stages', []))

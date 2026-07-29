@@ -700,6 +700,21 @@ which is one of the three phonemes that crash the device when spoken alone.
 
 `tools/extract-phonemes.py` reads both tables.
 
+`hunk+0x1454` is itself a driver of seven sub-routines, so the stage trick
+works one level down and `capture-stages.py --sub` breaks inside it. For
+`/HEH4LOW` that shows `0x1970` doing the bulk of the work — it rewrites all
+three arrays shifted to index 0 — `0x1492` touching only the two continuation
+slots, and the other five doing nothing, so they want inputs this word does
+not provide.
+
+`0x1492` is read: it walks the array and, for phonemes whose attribute bit 21
+is set — which is exactly the continuation slots rewrite pass 2 created —
+copies the previous phoneme's stress and looks a duration up in the tables
+above. `RX` gets a special case that averages its own duration with its
+predecessor's and writes the result to both, and attribute bit 7 halves a
+duration across two slots. The main phonemes' durations must therefore come
+from `0x1970`, which runs first and is not yet read.
+
 ## Still open
 
 - **How phonemes become frames** — the duration model, and how `rate` and
