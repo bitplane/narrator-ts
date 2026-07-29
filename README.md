@@ -45,8 +45,12 @@ tools/
   narrator-survey.py   how many distinct synthesizers are there really
   narrator-coverage.py attribute the device's code by watching which of it runs
   extract-phonemes.py  pull the phoneme table and attribute flags from a build
+  extract-rewrite-rules.py  pull the two allophonic rule tables
   capture-frames.py    dump the renderer's input, to check the port against
   capture-parse.py     dump the phoneme parser's output, likewise
+  capture-stages.py    dump the arrays after every front-half stage
+  trace-stages.py      diff the workspace across stages, to attribute bytes
+  render-wav.ts        render captured frames to WAV with the TypeScript
   trace-render.py      single-step the device, logging pitch pulses and frames
   fetch-musashi.sh     vendor the 68000 core
   oracle/
@@ -124,6 +128,7 @@ the full 4,865-phrase corpus is 45 seconds per build.
 | narrator pipeline | mapped — dispatch, stages, renderer, frame format |
 | **TypeScript renderer** | **sample-exact on all 30 captures**, voiced, unvoiced and mixed |
 | **TypeScript phoneme parser** | **byte-exact**, 30 utterances + 50 edge cases |
+| **TypeScript rewrite engine** | **byte-exact**, both allophonic passes, 30 utterances |
 | TypeScript synthesizer | stress, intonation and durations not started |
 
 Only two distinct translator behaviours exist across 1985-1991: 1.3, and

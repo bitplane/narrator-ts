@@ -527,15 +527,97 @@ The port is `src/narrator/parse.ts`, byte-exact against the device on all 30
 speech utterances and all 50 inputs in `fixtures/corpus/parse.txt`, rejections
 and empty results included.
 
+### The front half, stage by stage
+
+`CMD_WRITE`'s synthesis path is a straight run of calls at `hunk+0x7fe`, each
+handing the next a workspace rather than a value:
+
+| call | routine | what it writes |
+|---|---|---|
+| `0x7fe` | `0xf68` | the three arrays — the parser, above |
+| `0x810` | `0x112c` | nothing for simple input |
+| `0x81c` | `0x12d8` | rewrite pass 1, rules at `hunk+0x968` |
+| `0x826` | `0x11bc` | stress bytes: `0x80` and `0x80\|digit` |
+| `0x82c` | `0x1e1c` | word pairs at `A5+0x5e`..`0x88` |
+| `0x832` | `0x1ee0` | loop test, with `0x2160` as the body |
+| `0x846` | `0x1be8` | flag bytes |
+| `0x852` | `0x12d8` | rewrite pass 2, rules at `hunk+0xae3` |
+| `0x85c` | `0x1454` | rewrites all three arrays, shifted to index 0 |
+| `0x866` | `0x19bc` | stress again |
+| `0x86c` | `0x29d8` | the frame array, in allocated memory |
+| `0x884` | `0x52b4` | the renderer |
+
+`tools/trace-stages.py` produces that attribution by diffing the workspace
+across each boundary, and `tools/capture-stages.py` is the machine-readable
+version the tests consume. Reading 22KB of 68k to find out which stage owns
+which byte is the slow way round.
+
+### The rewrite engine
+
+`hunk+0x12d8`, run twice over the phoneme array with different tables. A rule
+is variable length and matches a phoneme, its two neighbours, and up to three
+groups of attribute tests; it can replace the phoneme and insert one before
+and one after.
+
+```
++0  phoneme to match, 0xff for any
++1  left neighbour,   0xff for any
++2  right neighbour,  0xff for any
++3  bits 0-3 length; bit 5 keep scanning this position; bit 6 skip an
+    unstressed right neighbour; bit 7 skip an unstressed left neighbour
++4  replacement, 0xff to leave alone
++5  insert before, 0xff for none
++6  insert after,  0xff for none
++7. tests: bits 0-4 the bit, bit 5 invert, bit 6 test the attribute longword
+    rather than the stress byte, bit 7 last test of the group
+```
+
+**A length of zero terminates the table, and `0xff` in byte 0 is a wildcard.**
+Reading it the other way round stops table 1 six rules early at a rule that
+happens to begin `0xff`, and the rules it silently drops are the ones that
+insert glottal stops. A test *passes* when its bit is clear, which reads
+backwards until you notice the caller branches on `bne`.
+
+The insertion routine at `hunk+0x1412` inserts at `i+1` rather than at `i` and
+leaves the cursor on what it inserted, which is why "insert before" is written
+as decrement, insert, increment.
+
+The two tables are real phonology, and worth reading as such:
+
+**`hunk+0x968`, 32 rules — allophony.** `T` and `D` between vowels become the
+flap `DX` ("butter"); `D` before `R` becomes `J` and `T` before `R` becomes
+`CH` ("drive", "train"); `UL`/`UM`/`UN` become `AX L`/`AX M`/`AX N` and
+`IL`/`IM`/`IN` likewise with `IX`; `L` becomes dark `LX`; `Z` devoices to `S`;
+and several rules insert `Q`, a glottal stop, before a vowel.
+
+**`hunk+0xae3`, 45 rules — frame expansion.** This is where a phoneme becomes
+the several frames it is really made of. The diphthongs `EY`, `AY`, `OY`,
+`OW`, `AW`, `UW` and `UX` each gain their second half, which is the *unnamed
+slot immediately after them in the name table* — so the gaps in that table are
+explained here. `G` and `K` split into front and back variants by vowel
+context. And `P`/`T`/`K` gain a release whose identity depends on whether an
+`S` precedes: aspirated normally, unaspirated after `S`. That is the
+difference between "pin" and "spin", in a rule table from 1984.
+
+`src/narrator/rewrite.ts` is the port, checked against the device's own arrays
+either side of both passes for all 30 captured utterances. Ten of them change
+in the first pass and eight in the second, so the rest are testing that rules
+correctly decline to fire.
+
 ## Still open
 
 - **How phonemes become frames** — the duration model, and how `rate` and
-  stress scale it. The parser is done and the rest is identified but not read:
-  stress at `0x1412` and `0x21b8`-`0x23ce`, natural-mode intonation at
-  `0x25f8`/`0x2642`/`0x2864`, the sentence-final contour at `0x2bc6`, and
-  frame generation at `0x2a6a`-`0x2d86`. `fixtures/golden/frames.json` already
-  holds the frames the device produced for each captured utterance, so this
-  has an oracle waiting for it the way the renderer did.
+  stress scale it. The parser and both rewrite passes are done; what is left
+  is the stage table above from `0x11bc` onwards. The pitch machinery
+  (`0x1e1c`, `0x1ee0`, `0x2160`) writes word pairs into `A5+0x5e`..`0x88` and
+  three arrays at `A5+0x6e8`, `+0x768` and `+0x7e8` whose meaning is not yet
+  established; `0x1454` rewrites all three arrays shifted to index 0, which
+  looks like the point where phonemes become frame slots; and `0x29d8` writes
+  the frame array itself into allocated memory rather than the workspace,
+  which is why the stage tracer sees it change nothing.
+  `fixtures/golden/frames.json` already holds the frames the device produced
+  for each captured utterance, so this has an oracle waiting for it the way
+  the renderer did.
 - **What the attribute bits mean.** 102 longwords, and the parser only tests
   four of them (0, 25, 26, 27). The rest are read by the stages above and are
   recorded by number rather than guessed at — several are clearly phonetic

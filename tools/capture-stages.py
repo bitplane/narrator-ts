@@ -1,0 +1,121 @@
+#!/usr/bin/env python3
+"""Capture the phoneme/stress/flag arrays at every front-half stage boundary.
+
+CMD_WRITE's synthesis path is a run of calls at hunk+0x7fe..0x86c, each
+handing the next a workspace. This records the three parallel arrays after
+each of them, so a stage can be ported and checked on its own instead of only
+at the far end -- which is the whole reason the renderer went quickly and
+would not have if the only oracle were the audio.
+
+`tools/trace-stages.py` is the same idea for exploring; this is the machine
+-readable version the test suite consumes.
+
+    capture-stages.py -f fixtures/corpus/frames.txt -o fixtures/golden/stages.json
+"""
+import argparse
+import json
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / 'tools' / 'oracle'))
+sys.path.insert(0, str(ROOT / 'tools'))
+
+import narrator as N                                          # noqa: E402
+from m68k import A5, PC                                       # noqa: E402
+from narrator import DEFAULT_DEV, Narrator                    # noqa: E402
+
+from importlib import import_module                           # noqa: E402
+capture_frames = import_module('capture-frames')
+capture_parse = import_module('capture-parse')
+
+# Return address -> the routine that just ran. Names match research/02.
+STAGES = [
+    (0x0804, 'parse'),          # 0xf68
+    (0x0816, 'after-parse'),    # 0x112c
+    (0x0822, 'rewrite-1'),      # 0x12d8, rules at 0x968
+    (0x082C, 'stress-decode'),  # 0x11bc
+    (0x0832, 'pitch-setup'),    # 0x1e1c
+    (0x0838, 'loop-test'),      # 0x1ee0
+    (0x0844, 'loop-body'),      # 0x2160
+    (0x084C, 'pre-rewrite-2'),  # 0x1be8
+    (0x0858, 'rewrite-2'),      # 0x12d8, rules at 0xae3
+    (0x0862, 'durations'),      # 0x1454
+    (0x086C, 'contour'),        # 0x19bc
+    (0x0872, 'frames'),         # 0x29d8
+]
+
+PHONEMES, STRESS, FLAGS, COUNT = 0x0E8, 0x2E8, 0x4E8, 0x9A
+
+
+def capture(device, phrase, opts, steps):
+    n = Narrator(device)
+    if n.open():
+        raise SystemExit('narrator.device refused to open')
+    h0 = n.hunks[0].addr
+    cpu = n.m.cpu
+    if not capture_frames.run_to(n, phrase, h0 + STAGES[0][0], opts):
+        return {'in': phrase, 'ok': False}
+
+    marks = {h0 + off: name for off, name in STAGES}
+    last = h0 + STAGES[-1][0]
+    a5 = cpu.get(A5)
+    out = []
+
+    def snap(name):
+        count = cpu.r16(a5 + COUNT)
+        take = min(max(count, 0) + 1, 0x200)
+        out.append({
+            'stage': name,
+            'count': count,
+            'phonemes': list(cpu.read(a5 + PHONEMES, take)),
+            'stress': list(cpu.read(a5 + STRESS, take)),
+            'flags': list(cpu.read(a5 + FLAGS, take)),
+        })
+
+    snap('parse')
+    for _ in range(steps):
+        pc = cpu.get(PC)
+        name = marks.get(pc)
+        if name is not None and pc != h0 + STAGES[0][0]:
+            snap(name)
+            if pc == last:
+                return {'in': phrase, 'ok': True, 'stages': out}
+        cpu.execute(1)
+        if n.m.sched.switch_pending:
+            n.m.sched.switch_pending = False
+            n.m.sched.switch()
+        if n.m.finished:
+            return {'in': phrase, 'ok': False, 'stages': out}
+    return {'in': phrase, 'ok': False, 'stages': out}
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument('-d', '--device', default=DEFAULT_DEV)
+    ap.add_argument('-p', '--phrase', action='append', default=[])
+    ap.add_argument('-f', '--file')
+    ap.add_argument('-o', '--out', required=True)
+    ap.add_argument('-n', '--steps', type=int, default=30_000_000)
+    for name, default in N.DEFAULTS.items():
+        ap.add_argument(f'--{name}', type=int, default=default)
+    args = ap.parse_args()
+
+    phrases = list(args.phrase)
+    if args.file:
+        phrases += capture_parse.read_corpus(Path(args.file))
+    if not phrases:
+        ap.error('nothing to capture: pass -p or -f')
+
+    opts = {k: getattr(args, k) for k in N.DEFAULTS}
+    out = [capture(args.device, p, opts, args.steps) for p in phrases]
+    Path(args.out).write_text(json.dumps(out) + '\n')
+    for r in out:
+        got = len(r.get('stages', []))
+        print(f'  {r["in"]!r:32} {got:2}/{len(STAGES)} stages'
+              f'{"" if r["ok"] else "  (incomplete)"}')
+    print(f'-> {args.out}')
+
+
+if __name__ == '__main__':
+    main()
