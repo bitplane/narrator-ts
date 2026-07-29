@@ -50,6 +50,7 @@ tools/
   capture-parse.py     dump the phoneme parser's output, likewise
   capture-stages.py    dump the arrays after every front-half stage
   trace-stages.py      diff the workspace across stages, to attribute bytes
+  branch-coverage.py   count the device's visits to each branch of a routine
   render-wav.ts        render captured frames to WAV with the TypeScript
   trace-render.py      single-step the device, logging pitch pulses and frames
   fetch-musashi.sh     vendor the 68000 core
@@ -112,6 +113,45 @@ python3 tools/narrator-survey.py          # ~7 minutes, all five builds
 
 Synthesis is slower than translation but not by much — about 80x realtime, so
 the full 4,865-phrase corpus is 45 seconds per build.
+
+The synthesis pipeline is checked stage by stage rather than only at the far
+end, so it wants a few more fixtures — the tables lifted out of the binary,
+and the device's own arrays either side of each stage:
+
+```sh
+python3 tools/extract-phonemes.py fixtures/amiga/narrator_device-33.2-*.bin \
+    -o fixtures/golden/phonemes-33.2.json
+python3 tools/extract-rewrite-rules.py fixtures/amiga/narrator_device-33.2-*.bin \
+    -o fixtures/golden/rewrite-33.2.json
+python3 tools/capture-parse.py -f fixtures/corpus/frames.txt \
+    -o fixtures/golden/parse.json
+python3 tools/capture-parse.py -f fixtures/corpus/parse.txt \
+    -o fixtures/golden/parse-edge.json
+python3 tools/capture-frames.py -f fixtures/corpus/frames.txt \
+    -o fixtures/golden/frames.json
+python3 tools/capture-stages.py -f fixtures/corpus/frames.txt \
+                                -f fixtures/corpus/stages.txt \
+    -o fixtures/golden/stages.json
+```
+
+Without those the front-half tests skip rather than fail, which is quiet
+enough to miss — `npx vitest run` should report upwards of 500 tests.
+
+Two corpora feed that last pair because they are chosen for different things.
+`frames.txt` picks phrases that reach distinct paths through the *render*
+loop; `stages.txt` picks them for the *front half*, one per decision the rest
+of the corpus reaches once or not at all. Which branches those are is measured
+rather than guessed:
+
+```sh
+python3 tools/branch-coverage.py -r durations \
+    -f fixtures/corpus/frames.txt -f fixtures/corpus/stages.txt
+```
+
+That counts the device's own visits to each decision point in a routine. A
+port can match every fixture and still be wrong down a branch the fixtures
+never take — the stress spreader passed 27 of 30 captures with a real bug in
+it — so a stage is not done until this says the corpus drives it.
 
 ## Status
 
