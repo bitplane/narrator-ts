@@ -102,7 +102,19 @@ BLEND = [
     (0x1952, '0x17d6 mark a tail frame with amplitudes'),
 ]
 
-ROUTINES = {'durations': DURATIONS, 'frames': FRAMES, 'blend': BLEND}
+# hunk+0x19c4, the contour marker.
+CONTOUR = [
+    (0x19D4, '0x19c4 clear a low nibble'),
+    (0x1A24, '0x19c4 a vowel, the peak'),
+    (0x1A40, '0x19c4 fall on the next phoneme'),
+    (0x1A48, '0x19c4 fall one further, split or LX/RX'),
+    (0x1A6E, '0x19c4 extend the voiced run'),
+    (0x1A72, '0x19c4 mark the end of it'),
+    (0x1A78, '0x19c4 the span ran out before a vowel'),
+]
+
+ROUTINES = {'durations': DURATIONS, 'frames': FRAMES, 'blend': BLEND,
+            'contour': CONTOUR}
 
 
 def run(device, phrase, opts, marks, steps, counts):

@@ -65,6 +65,10 @@ SUBSTAGES = [
     (0x1466, 'dur/0x1472'),
     (0x146A, 'dur/0x172a'),
     (0x146E, 'dur/0x17d6'),
+    # hunk+0x19bc is two calls in a row: the contour codes, then the pitch
+    # and period pass that reads them.
+    (0x19BE, 'contour/0x19c4'),
+    (0x19C2, 'contour/0x1a8e'),
 ]
 
 PHONEMES, STRESS, FLAGS, COUNT = 0x0E8, 0x2E8, 0x4E8, 0x9A
