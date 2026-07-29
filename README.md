@@ -4,10 +4,16 @@ A faithful TypeScript reimplementation of the Amiga's speech pair —
 `translator.library` (English text to phonemes) and `narrator.device` (phoneme
 formant synthesis).
 
-Covers every shipped version, selectable at runtime. First target is **33.2**,
-the Amiga 500 / Workbench 1.2-1.3 voice. `narrator.device` 37.7 (Kickstart
-2.04, the Amiga 500 Plus) is a genuine rewrite and becomes a second backend
-behind the same interface, not a parameterisation of the first.
+The target is **33.2**, the Amiga 500 / Workbench 1.2-1.3 voice, and only
+that. The translator side covers all six shipped builds because they turned
+out to be two behaviours in a trenchcoat and supporting both was free;
+`narrator.device` 37.7 is a genuine rewrite, 2.4x the code, and is
+deliberately **out of scope**. One voice, done properly.
+
+The work that replaced it is a **free voice**: a set of tables built from
+published phonetics and from what reading 33.2 taught us about what each
+column means, rather than extracted from Commodore's binary. See
+*Redistribution* below.
 
 This is a standalone, general-purpose library with no host-application
 knowledge in it. It exposes the device's own interface — raw phoneme input as
@@ -203,6 +209,8 @@ it — so a stage is not done until this says the corpus drives it.
 | **the front half, end to end** | **byte-exact frame array on 238 utterances** |
 | **text to samples** | **sample-exact on 65 captures across five parameter sets** |
 | **`tools/say.ts`** | **English to WAV with no emulator, identical to the device** |
+| free letter-to-sound table | built, checked in, divergence measured |
+| free voice | **not started** — the one thing between here and shipping |
 
 Only two distinct translator behaviours exist across 1985-1991: 1.3, and
 31.7 onwards (which includes the V37 rewrite). The single difference is
@@ -304,10 +312,27 @@ npx vite-node tools/render-wav.ts -- -o /tmp/out --speak --both
 device's; `--both` writes the device's own PCM beside each file. All 30 come
 out identical, frame array and samples alike.
 
-**Still open:** `narrator.device` 37.7, the second backend; and the fact that
-the tables are still a *parameter*. `synthesize()` takes the phoneme table,
-the attribute flags, the formant parameters, the gain curve and the two
-rewrite rule sets from its caller and ships none of them, because they are
-Commodore's and this repository does not redistribute them. Note that the copyright line in every build reads *Mark Barton /
+## Redistribution
+
+Nothing Commodore's or SoftVoice's is in this repository, and nothing ever has
+been — `fixtures/amiga/*.bin`, `fixtures/golden/` and `data/` are all
+gitignored, and `git log --diff-filter=A` over all history confirms it. What
+that costs is real: **a fresh clone cannot make a sound.** It has the code,
+the tools, the public-domain NRL rules in `reference/`, and instructions.
+
+Reading a binary to work out what it does is one thing; redistributing its
+data is another. The first is why `src/` exists and is not a derivative work
+in any sense that matters. The second is the actual constraint, and it is
+untouched.
+
+So the plan is a **free voice**: rebuild the 12,228 bytes of tables from
+published phonetics and from what the disassembly taught us they *mean*, and
+ship that. It will not be byte-identical to the Amiga — it cannot be, and
+saying so is the point. The precedent is already here: `reference/nrl-table.json`
+is the free letter-to-sound table, built from the 1976 NRL report alone, with
+its 64.6% divergence from Commodore's measured and written down rather than
+glossed. The voice gets the same treatment.
+
+**Still open:** that voice. Note that the copyright line in every build reads *Mark Barton /
 Joseph Katz* — this was licensed in from SoftVoice, Inc. and Commodore never
 owned it, which is likely why the device vanished from AmigaOS 3.5 onward.

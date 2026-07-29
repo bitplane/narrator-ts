@@ -1053,8 +1053,15 @@ than "fixed": the device does not do it, so neither does the port.
 
 ## Still open
 
-- **`narrator.device` 37.7**, the rewrite, as a second backend behind the same
-  interface. Nothing of it has been read.
+- **A free voice.** The 12,228 bytes of tables the library currently takes as
+  a parameter, rebuilt from published phonetics and from what this document
+  worked out each column *means*, so that the package can ship speaking. Not
+  byte-identical, and not pretending to be — the same deal as
+  `reference/nrl-table.json` on the translator side.
+
+  37.7 was on this list and has been dropped. It is a rewrite, 2.4x the code
+  (0xd730 against 0x5890), and shipping one voice that anyone can use is worth
+  more than a second one nobody can.
 - **What the attribute bits mean.** 102 longwords, and the parser only tests
   four of them (0, 25, 26, 27). The rest are read by the stages above, and
   most now have a name earned by what reads them rather than by inspection —
