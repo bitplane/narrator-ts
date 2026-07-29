@@ -141,3 +141,8 @@ DHAH KAET SAET
 IHZ DHIH4S AH KWEH4SCHAHN?
 WEH4R AA4R DHAH SEH4VEHN LAO4NX WER4DZ?
 WAH4N TUW4 THRIY4 FOH4R FAY4V?
+
+# hunk+0x1fd8 reads `arr3` through the cursor at A5+0x68 like everything else
+# in this stage, so a dash anywhere but the first phrase of an utterance lands
+# at a different index. Nothing else in the corpus puts one there.
+GUH4D BAY4, SOW4 LAO4NX - MAY4 FREH4ND.

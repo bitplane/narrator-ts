@@ -233,7 +233,7 @@ export function scanPhrase(state: ProsodyState, attrs: Attrs): number | null {
  */
 export function markBoundaries(state: ProsodyState, attrs: Attrs): number {
   const { phonemes, stress, flags } = state
-  const arr3 = state.arr[CADENCE]
+  const arr3 = state.arr[CADENCE].subarray(state.arrAt)
   const arr4 = state.arr[DESCRIPTOR].subarray(state.arrAt)
 
   let p = state.atPhoneme
