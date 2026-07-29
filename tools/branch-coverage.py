@@ -157,6 +157,13 @@ INTERPOLATE = [
     (0x2C68, '0x2bc6   a sonorant before it, dig out the closure'),
     (0x2CC8, '0x2bc6   a sonorant after it'),
     (0x2CEC, '0x2bc6 nothing to do'),
+    (0x2B04, '0x2ae0 total, one per phoneme'),
+    (0x2B7A, '0x2ae0 M takes the UL murmur'),
+    (0x2B8A, '0x2ae0 N takes UM'),
+    (0x2B9A, '0x2ae0 NX takes UN'),
+    (0x2BA2, '0x2ae0 any other nasal takes IL'),
+    (0x2B40, '0x2ae0 nasalise the vowel in front of it'),
+    (0x2B6A, '0x2ae0 nothing to do'),
 ]
 
 # The five routines hunk+0x1ee0 calls: the prosody pass.

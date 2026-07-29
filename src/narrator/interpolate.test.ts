@@ -6,6 +6,7 @@ import {
   applyGain,
   fillMarkedRuns,
   fillZeroRuns,
+  nasalise,
   shapeFrication,
   smooth7,
   intrinsicPitch,
@@ -31,11 +32,17 @@ const gain: number[] | undefined = existsSync(TABLES)
   : undefined
 
 const PHONEMES = 'fixtures/golden/phonemes-33.2.json'
-const attrs: number[] | undefined = existsSync(PHONEMES)
-  ? (JSON.parse(readFileSync(PHONEMES, 'utf8')) as { attrs: number | null }[])
-      .filter((r) => r.attrs !== null)
-      .map((r) => r.attrs as number)
+interface Row { attrs: number | null; params: Record<string, number> | null }
+const rows: Row[] | undefined = existsSync(PHONEMES)
+  ? (JSON.parse(readFileSync(PHONEMES, 'utf8')) as Row[])
   : undefined
+const attrs: number[] | undefined = rows?.filter((r) => r.attrs !== null).map((r) => r.attrs as number)
+/** The six parameter rows hunk+0x2ae0 reads the nasal murmur out of. */
+const col = (k: string): number[] => rows!.map((r) => r.params?.[k] ?? 0)
+const table = rows && {
+  f1: col('f1'), f2: col('f2'), f3: col('f3'),
+  a1: col('a1'), a2: col('a2'), a3: col('a3'),
+}
 
 interface Snapshot {
   stage: string
@@ -139,6 +146,21 @@ describe.skipIf(captures.length === 0)('the frame interpolator, against the devi
           frames,
         )
         expect(Array.from(frames)).toEqual(fr[1].frames!.flat())
+      })
+    }
+
+    const na = pair(c, 'frames/0x2ae0')
+    if (na?.[0].frames && na[1].frames && attrs !== undefined && table !== undefined) {
+      it(`nasalise: ${tag}`, () => {
+        const frames = new Uint8Array(na[0].frames!.flat())
+        nasalise(
+          Uint8Array.from(na[0].phonemes),
+          Uint8Array.from(na[0].flags),
+          attrs,
+          table,
+          frames,
+        )
+        expect(Array.from(frames)).toEqual(na[1].frames!.flat())
       })
     }
 

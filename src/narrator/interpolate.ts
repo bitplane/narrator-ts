@@ -14,6 +14,8 @@
  * does not necessarily land exactly on the target.
  */
 
+import type { Params } from './frames.js'
+
 /** Bytes per frame. */
 const FRAME = 8
 
@@ -350,5 +352,99 @@ export function shapeFrication(
       frames[at + 2 * FRAME + 5] = HOLE
     }
     first = false
+  }
+}
+
+/**
+ * hunk+0x2ae0. Nasalise — put the nasal murmur in, and colour the vowel in
+ * front of it.
+ *
+ * Two halves, both of them real phonetics.
+ *
+ * **A nasal** (0x2b70) gets its frames overwritten outright with a fixed
+ * spectrum: F1, F2, F3 and the three amplitudes, straight out of the parameter
+ * tables at a column no phoneme reaches by the normal route. `M` takes column
+ * 96, `N` 97, `NX` 98 and anything else 99 — which are `UL`, `UM`, `UN` and
+ * `IL`, the syllabic consonants. Those are rewritten away in the first pass,
+ * so their rows in the table are free, and the device uses them to hold the
+ * murmur. Every frame of the nasal is the same; the murmur does not move.
+ *
+ * "Anything else" is `NH`, the only other phoneme carrying the nasal bit, and
+ * it cannot be heard: 33.2 gives it a duration of zero and six zero
+ * parameters, an empty slot the parser will nonetheless accept. An utterance
+ * containing one does not finish — `BAH4TNH` runs past thirty million
+ * instructions in the oracle where `BAH4T` completes in a fraction of that —
+ * so the `IL` column is addressed, reachable on paper and unreachable in fact.
+ * Ported as written; where it hangs was not chased down.
+ *
+ * Note the table it reads is the *primary* one, addressed absolutely. The
+ * second voice's higher formants at `hunk+0x50ae` are not consulted, so with
+ * `sex` set the nasals keep the first voice's spectrum while everything around
+ * them changes.
+ *
+ * **A vowel before a nasal** (0x2b40) is nasalised across its second half:
+ * F1 rises by 4 on the middle frame and by 9 on every frame after it, and the
+ * first formant's amplitude is cut to three quarters. Coupling the nasal
+ * cavity in raises and damps F1 — the vowel starts to sound like the nasal
+ * before the nasal arrives, which is what makes "man" not sound like "mad".
+ *
+ * The frame count for that second half is `n - n/2 - 2` computed in a *byte*,
+ * so a vowel of one or two frames before a nasal underflows to 254 or 255 and
+ * the device runs off the end of the frame array. No duration the corpus
+ * produces is that short — a vowel gets at least four frames — but the
+ * arithmetic is what it is, and it is left alone here rather than guarded.
+ */
+export function nasalise(
+  phonemes: Uint8Array,
+  flags: Uint8Array,
+  attrs: readonly number[],
+  table: Pick<Params, 'f1' | 'f2' | 'f3' | 'a1' | 'a2' | 'a3'>,
+  frames: Uint8Array,
+): void {
+  /** Bit 0: a vowel. Bit 16: a nasal. */
+  const VOWEL = 1 << 0
+  const NASAL = 1 << 16
+
+  /** The three nasals, and the murmur column each one borrows. */
+  const MURMUR: Record<number, number> = { 0x2a: 0x60, 0x2b: 0x61, 0x2c: 0x62 }
+  const rows = [table.f1, table.f2, table.f3, table.a1, table.a2, table.a3]
+
+  let at = 0
+  for (let i = 0; ; i++) {
+    const p = phonemes[i]
+    if (p === END) return
+    const n = flags[i] & 0x3f
+    const a = attrs[p] ?? 0
+
+    if (a & NASAL) {
+      // 0x2b70: the same six bytes into every frame of it.
+      const column = MURMUR[p] ?? 0x63
+      const count = n === 0 ? 0x10000 : n
+      for (let k = 0; k < count; k++, at += FRAME) {
+        for (let b = 0; b < 6; b++) frames[at + b] = rows[b][column] ?? 0
+      }
+      continue
+    }
+
+    // 0x2b26: a vowel, and only if a nasal comes next.
+    if (!(a & VOWEL) || !((attrs[phonemes[i + 1]] ?? 0) & NASAL)) {
+      at += n * FRAME
+      continue
+    }
+
+    // 0x2b40: from the middle of the vowel on.
+    const half = n >>> 1
+    at += half * FRAME
+    frames[at] = (frames[at] + 4) & 0xff
+    at += FRAME
+
+    // 0x2b50: `sub.b` then `subq.b`, so this is a byte and it can wrap.
+    let left = (n - half - 2) & 0xff
+    for (;;) {
+      frames[at] = (frames[at] + 9) & 0xff
+      frames[at + 3] = (frames[at + 3] - (frames[at + 3] >>> 2)) & 0xff
+      at += FRAME
+      if (left-- === 0) break
+    }
   }
 }
