@@ -45,6 +45,15 @@ import { MAX_PHONEMES, parse, TERMINATOR, type Parsed, type PhonemeTable } from 
 import { nextPhrase, pitchLoopBody, type ProsodyState } from './prosody.js'
 import { rewrite, type Attrs, type Rule } from './rewrite.js'
 import { spreadStress } from './stress.js'
+import { render } from './render.js'
+import {
+  audioPeriod,
+  PAL_CLOCK,
+  renderTables,
+  voiceFrom,
+  type RenderOptions,
+  type VoiceData,
+} from './voice.js'
 
 /** Everything the synthesizer reads out of the device's own data. */
 export interface Voice {
@@ -258,3 +267,46 @@ function contourArrays(prosody: ProsodyState): PitchArrays {
 
 /** Re-exported so a caller can size a buffer without reaching into `parse`. */
 export { MAX_PHONEMES, TERMINATOR }
+
+/** Samples, and everything that came with them. */
+export interface SpeechResult {
+  /** 8-bit signed PCM, every sentence joined in order. */
+  pcm: Int8Array
+  /** The Paula period the device would have played it at. */
+  period: number
+  /** Samples per second, from that period on PAL. */
+  sampleRate: number
+  /** One entry per sentence, as the device produces them. */
+  sentences: Speech[]
+}
+
+/**
+ * Phonemes in, samples out — `CMD_WRITE` and the audio it would have written.
+ *
+ * Each sentence is rendered on its own and the samples joined, because that
+ * is what the device does: every sentence is a separate buffer handed to
+ * `audio.device`, and the renderer's waveform pointer and pitch phase start
+ * again at each.
+ *
+ * `input` is bytes rather than a string because the device works in Latin-1
+ * and reads one byte past what it was given.
+ */
+export function speak(
+  input: Uint8Array,
+  data: VoiceData,
+  opts: SpeakOptions & RenderOptions = {},
+): SpeechResult {
+  const sentences = synthesize(input, voiceFrom(data), opts)
+  const tables = renderTables(data, opts)
+  const parts = sentences.map((s) => render(s.frames, tables))
+
+  const pcm = new Int8Array(parts.reduce((n, p) => n + p.length, 0))
+  let at = 0
+  for (const part of parts) {
+    pcm.set(part, at)
+    at += part.length
+  }
+
+  const period = audioPeriod(opts.sampfreq)
+  return { pcm, period, sampleRate: Math.round(PAL_CLOCK / period), sentences }
+}

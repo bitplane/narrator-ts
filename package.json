@@ -1,19 +1,37 @@
 {
   "name": "narrator-ts",
   "version": "0.0.0",
-  "description": "A faithful TypeScript reimplementation of the Amiga narrator.device and translator.library",
+  "description": "TypeScript reimplementation of the Amiga narrator.device and translator.library",
   "type": "module",
   "license": "MIT",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
-    "oracle:build": "bash tools/fetch-musashi.sh && make -C tools/oracle",
-    "fixtures": "python3 tools/extract-devices.py"
+    "say": "vite-node tools/say.ts --",
+    "oracle:build": "bash tools/fetch-musashi.sh && make -C tools/oracle"
   },
   "devDependencies": {
     "typescript": "^5.7.2",
     "vitest": "^2.1.8",
     "@types/node": "^22.10.2"
-  }
+  },
+  "main": "./dist/narrator/index.js",
+  "types": "./dist/narrator/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/narrator/index.d.ts",
+      "default": "./dist/narrator/index.js"
+    },
+    "./translator": {
+      "types": "./dist/translator/index.d.ts",
+      "default": "./dist/translator/index.js"
+    },
+    "./reference/nrl-table.json": "./reference/nrl-table.json"
+  },
+  "files": [
+    "dist",
+    "reference",
+    "README.md"
+  ]
 }

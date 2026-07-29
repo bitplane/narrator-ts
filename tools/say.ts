@@ -81,7 +81,13 @@ function main(): void {
   if (!phonemesIn && !text) {
     console.error('usage: say.ts <text> -o out.wav')
     console.error('       say.ts -p <phonemes> -o out.wav')
-    console.error('  --pitch N  --rate N  --sampfreq N  --sex 0|1  --mode 0|1')
+    console.error('  --pitch N     65..320, default 110')
+    console.error('  --rate N      words per minute, 40..400, default 150')
+    console.error('  --sampfreq N  5000..28000, default 22200')
+    console.error('  --sex 0|1     0 male, 1 female')
+    console.error('  --mode 0|1    1 is the monotone robot voice')
+    console.error('  --mouths      also report the lip-sync stream')
+    console.error('  -V <version>  which extracted voice to use, default 33.2')
     process.exit(2)
   }
 

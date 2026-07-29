@@ -118,7 +118,7 @@ Entry point at hunk `0x134`, reached via the library base's `-30` vector.
 It builds a 0x86-byte stack frame, zeroes a 27-longword scratch area to spaces
 (`move.l #$20202020`), and sets `A4` to a work buffer at hunk `0x642`.
 
-## Version split: why 37.7 is a separate backend, not a variant
+## Version split: why 37.7 is out of scope
 
 `narrator.device` 37.7 (`e28300e0`, 22 May 1991, Kickstart 2.04 / Amiga 500
 Plus) carries the same `MARK BARTON` / `JOSEPH KATZ` strings but is a genuine
@@ -129,6 +129,9 @@ rewrite:
 - `ULUMUNILIMIN` is **absent**
 
 33.2 and 36.9 (`8956153f`) are the same engine as each other — same table
-layout at the same relative offsets, near-identical size. 37.7 is not. Treat
-it as a second implementation behind the same interface rather than a
-parameterisation of the first.
+layout at the same relative offsets, near-identical size. 37.7 is not: it is
+a second implementation, and porting it would be starting again.
+
+It is **not a target**. 1.6, 31.13, 33.2 and 36.9 are sample-identical over
+4,865 phrases and every parameter extreme, so 33.2 already covers four of the
+five shipped builds. The fifth is not worth a second synthesizer.
