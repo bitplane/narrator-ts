@@ -3,6 +3,18 @@ name: Publish
 on:
   push:
     tags: ['v*']
+  # Run the whole thing by hand, stopping short of the registry. A tag-driven
+  # publish cannot be rehearsed and cannot be taken back, so this exists to
+  # find the broken secret or the failing test on a run that does not count.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to check against package.json, e.g. 0.1.0'
+        required: true
+      publish:
+        description: 'Actually publish? Leave false to dry run.'
+        type: boolean
+        default: false
 
 jobs:
   publish:
@@ -25,14 +37,16 @@ jobs:
       # Publishing v0.1.1 from a tree that says 0.1.0 is the mistake this
       # catches, and it is unrecoverable afterwards: a version number cannot
       # be reused once it has been on the registry.
-      - name: Tag must match package.json
+      - name: Version must match package.json
         run: |
-          tag="${GITHUB_REF_NAME#v}"
+          want="${{ inputs.version || github.ref_name }}"
+          want="${want#v}"
           pkg="$(node -p "require('./package.json').version")"
-          if [ "$tag" != "$pkg" ]; then
-            echo "tag v$tag does not match package.json $pkg" >&2
+          if [ "$want" != "$pkg" ]; then
+            echo "asked for v$want, package.json says $pkg" >&2
             exit 1
           fi
+          echo "publishing $pkg"
 
       - run: npx tsc --noEmit
       - run: npm run build
@@ -41,6 +55,14 @@ jobs:
       # prepublishOnly builds and tests again; that is deliberate. The steps
       # above are there so a failure says which one, rather than dying inside
       # a publish.
-      - run: npm publish --provenance --access public
+      - name: Publish (dry run)
+        if: github.event_name == 'workflow_dispatch' && !inputs.publish
+        run: npm publish --provenance --access public --dry-run
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish
+        if: github.event_name != 'workflow_dispatch' || inputs.publish
+        run: npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
