@@ -94,7 +94,7 @@ Texture, against the same utterance — `tools/voice-texture.py` reproduces it:
 | RMS / peak | 25.7 / 122 | 26.5 / 122 |
 
 It was much harsher than that, and then it was clear but slurred — "please
-top what you want me to se". Five things were wrong, and all five were
+top what you want me to se". Six things were wrong, and all six were
 structural rather than a matter of taste:
 
 - **The amplitude scale was linear where it should have been decibels.** The
@@ -122,7 +122,6 @@ structural rather than a matter of taste:
   voice's level down to stay inside eight bits. Modelling both halves — the
   ring-down of the last pulse plus Rosenberg's rising flow of the current one
   — put the crest factor within 0.1 dB of 33.2's.
-
 - **There were no rewrite rules at all**, which I had written off as missing
   polish. It is not: the driver runs the engine twice, and the second pass is
   what expands a phoneme into the several slots it is really stored as. A
