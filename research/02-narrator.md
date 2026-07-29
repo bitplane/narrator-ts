@@ -369,20 +369,52 @@ roughly 22 kHz, whatever `sampfreq` says. Any port that computes every sample
 at the output rate will not be sample-exact, and will not sound the same
 either: the duplication is audible as the characteristic grain.
 
+### The frame format
+
+Eight bytes, from the loads at `hunk+0x5544` and `hunk+0x55d0`:
+
+| | | | |
+|---|---|---|---|
+| +0 | F1 phase increment | +4 | F2 amplitude |
+| +1 | F2 phase increment | +5 | F3 amplitude |
+| +2 | F3 phase increment, doubled into a word | +6 | voicing |
+| +3 | F1 amplitude | +7 | pitch period, in samples |
+
+Bit 7 of +0 ends the array. A +6 of zero is fully voiced; otherwise bit 7 means
+"sum a voiced formant as well" (a voiced fricative), bits 4-6 pick one of eight
+fricative tables at `A5+0xa2`, and bits 0-3 are the noise amplitude.
+
+`D0` carries two counters, one per half-word, and the code swaps between them:
+the samples left in this frame (reloaded to `A5+0x24` each frame) and the
+samples left in this pitch period (reloaded from +7). **Amplitudes are only
+sampled at a pitch pulse**, so a frame whose period has not expired keeps the
+previous pulse's levels — including a pulse that lands mid-frame.
+
+Two things here are easy to get plausibly wrong. The increments are added as
+one longword read from `A5+2`, so F2's word is the *high* half and F3's the
+low, and the add is bracketed by swaps that land each on its own accumulator.
+And `lsr.l #4` shifts the whole longword *before* the halves are separated, so
+F3's low nibbles pass through F2's word and are masked off there. Both were
+wrong in the first port and both produced output that looked reasonable.
+
+### Unvoiced output is not doubled — it is two nibbles
+
+The noise loop reads one byte from the fricative table and emits **two**
+samples from it, low nibble then high (`hunk+0x5644` and `hunk+0x5654`), with
+the voiced component added to each. So unvoiced runs at the output rate while
+voiced runs at half it, and the incidental 10-17% equality measured earlier is
+just two nibbles happening to match.
+
 ## Still open
 
-The pipeline above is mapped, not finished. What a sample-exact port still
-needs:
-
-- **The frame format.** The renderer walks `A6` through an array, taking one
-  byte to `A5+3`, one to `A5+5`, skipping three, one to `A5+0xe` (the
-  voiced/unvoiced selector) and one to `A5+0xc`. The stride and the meaning of
-  the skipped bytes are not yet established.
-- **The tables themselves.** `A0` at `hunk+0x4aae` and `A1` at `hunk+0x3106`
-  are located but not dumped or understood; likewise the eight `0x1e0`-byte
-  blocks from `hunk+0x3bae` that `CMD_WRITE` sets up at `A5+0xa2`.
+- **The noise values.** The unvoiced path has the right shape in the port —
+  output length matches to the sample and the nibble pairing is right — but the
+  values diverge from the first fricative frame. The index into the fricative
+  table (`A5+0x10`) is the likely culprit; it is read at `hunk+0x5614` and its
+  advance has not been traced.
 - **How phonemes become frames** — the duration model, and how `rate` and
-  stress scale it. The routines are identified; their contents are not.
+  stress scale it. The routines are identified; their contents are not. This is
+  the whole front half of the synthesizer.
 - **The mouth-shape stream** (`mouth_rb`), whose width/height nibbles are at
   `hunk+0x5798`. `CMD_READ` is the other half and the rig does not issue one.
 - Whether the parameter sweep's one-axis-at-a-time grid hides anything. A
