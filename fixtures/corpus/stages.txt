@@ -146,3 +146,13 @@ WAH4N TUW4 THRIY4 FOH4R FAY4V?
 # in this stage, so a dash anywhere but the first phrase of an utterance lands
 # at a different index. Nothing else in the corpus puts one there.
 GUH4D BAY4, SOW4 LAO4NX - MAY4 FREH4ND.
+
+# hunk+0x23ce reconciles each stressed syllable with the next, and what it
+# does depends on how far apart they are: back to back it flattens both, and
+# with room between them it widens both, on a three-band ladder of one, two or
+# more syllables in the gap. Nothing else in the corpus puts two unstressed
+# syllables in a row between two stressed ones.
+SIY4 DHAH KAET RAH4N
+SIY4 DHAH KAET AHN RAH4N
+SIY4 DHAH KAET AHN DHAH RAH4N
+SIY4 DHAH KAET AHN DHAH GRAAS RAH4N.

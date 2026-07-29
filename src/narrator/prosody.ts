@@ -360,15 +360,16 @@ export function markPunctuation(state: ProsodyState, syllables: number): void {
  * the cursors are past it by then, so `(-1,A0)` is the `.` or `?` and this
  * returns. Only a phrase that ran out some other way gets a cadence.
  *
- * Which means **the question intonation never fires**. The rise is chosen by
- * `arr5[n - 1] == 8`, and 8 is what {@link markPunctuation} writes for a `?`;
- * but a phrase that ended in `?` has already returned two lines above, and in
- * any case {@link markVoiced} has put bit 0 into every entry first, so the
- * value is 9 and never 8. Two independent reasons, either enough on its own.
+ * Which means **this** rise never fires. It is chosen by `arr5[n - 1] == 8`,
+ * and 8 is what {@link markPunctuation} writes for a `?`; but a phrase that
+ * ended in `?` has already returned two lines above, and in any case
+ * {@link markVoiced} has put bit 0 into every entry first, so the value is 9
+ * and never 8. Two independent reasons, either enough on its own.
  *
- * So 33.2 has a rising contour in it, addressed and reachable-looking, that no
- * input can select. Ported as written rather than "fixed" — the device does
- * not do it, so neither does this.
+ * That is not to say 33.2 cannot ask a question. It does — in
+ * {@link linkSyllables}, which reads the same `arr5` byte and inverts the
+ * final fall into a rise, and which the corpus drives. This particular rise is
+ * the dead one. Ported as written rather than "fixed".
  */
 export function markCadence(state: ProsodyState, syllables: number): void {
   const arr3 = state.arr[CADENCE].subarray(state.arrAt)
@@ -666,4 +667,120 @@ export function syllableRange(state: ProsodyState): void {
   // rather than a fraction of it, so it is the one that reaches the peak the
   // declination picked.
   arr6[counters.first] = (arr1[counters.first] - 0x6e) & 0xff
+}
+
+/**
+ * hunk+0x23ce. Reconcile each stressed syllable with the next one, and give
+ * the phrase its final punctuation.
+ *
+ * Two halves. The first walks the primary stresses backwards in pairs and
+ * adjusts both by how far apart they are:
+ *
+ * - **Back to back** (0x23f8) — both swings shrink to 77/128, the earlier
+ *   middle drops 26/128 of its height and the later one rises by the same,
+ *   and then whatever gap is left between the earlier syllable's low and the
+ *   later one's is closed outright by deepening one or raising the other.
+ *   Two stresses in a row have no room for two full contours, so they are
+ *   flattened and butted together.
+ * - **Anything further apart** (0x2496) — both swings *grow*, by 19, 32 or 38
+ *   parts in 128 as the gap is one, two or more syllables, and the middles
+ *   move apart rather than together. With room between them each stress gets
+ *   its own excursion, and the more room the bigger.
+ *
+ * The second half (0x2574) is the punctuation, on any stressed syllable a
+ * pause follows:
+ *
+ * - **A full stop** puts the low a flat 75 below the middle.
+ * - **A question** raises the peak by 102/128 of the fall and then sets the
+ *   fall from the *highest* middle anywhere earlier in the phrase, times
+ *   154/128. That is bigger than the syllable's own middle, so the result
+ *   goes negative and the low ends up above the middle rather than below it.
+ *
+ * So 33.2 does speak a question differently — here, in arithmetic, rather than
+ * through the rise flag in {@link markCadence} that no input can select.
+ */
+export function linkSyllables(state: ProsodyState): void {
+  const { counters } = state
+  const arr1 = state.arr[MIDDLE].subarray(state.arrAt)
+  const arr3 = state.arr[CADENCE].subarray(state.arrAt)
+  const arr4 = state.arr[DESCRIPTOR].subarray(state.arrAt)
+  const arr5 = state.arr[VOICING].subarray(state.arrAt)
+  const arr6 = state.arr[RISE].subarray(state.arrAt)
+  const arr7 = state.arr[FALL].subarray(state.arrAt)
+
+  // ------------------------------------------------------------------ 0x23e0
+  /** `D1`: the stressed syllable above this one, which only it moves on. */
+  let next = counters.last
+  for (let i = counters.last - 1; i >= 0; i--) {
+    if (!(arr4[i] & SYLLABLE.PRIMARY)) continue
+    // 0x23ea: `next - i - 2`, so zero means exactly one syllable between them
+    // and there is nothing to reconcile.
+    const gap = sw(next - i - 2)
+
+    if (gap < 0) {
+      arr6[i] = (arr6[i] + round7(muls(sb(arr6[i]), -0x33))) & 0xff
+      arr6[next] = (arr6[next] + round7(muls(sb(arr6[next]), -0x33))) & 0xff
+      arr1[i] = (arr1[i] + round7(muls(arr1[i] - 0x6e, -0x1a))) & 0xff
+      arr1[next] = (arr1[next] + round7(muls(arr1[next] - 0x6e, 0x1a))) & 0xff
+
+      // 0x2474: what is left between this syllable's low and the next one's,
+      // all in bytes, and `bpl` on the byte.
+      const d = (arr1[i] - arr7[i] - arr1[next] + arr6[next]) & 0xff
+      if (sb(d) < 0) arr6[next] = (arr6[next] - d) & 0xff
+      else arr7[i] = (arr7[i] + d) & 0xff
+    } else if (gap > 0) {
+      // 0x2498, 0x24e6 and 0x2512: three ladders of the same shape, each
+      // reading the gap back off the stack.
+      const widen = gap === 1 ? 0x13 : gap === 2 ? 0x20 : 0x26
+      arr6[i] = (arr6[i] + round7(muls(sb(arr6[i]), widen))) & 0xff
+      arr6[next] = (arr6[next] + round7(muls(sb(arr6[next]), widen))) & 0xff
+      arr1[next] = (arr1[next] + round7(muls(arr1[next] - 0x6e, gap === 1 ? -0x13 : -0x20))) & 0xff
+      arr1[i] = (arr1[i] + round7(muls(arr1[i] - 0x6e, gap === 1 ? 0x0d : 0x13))) & 0xff
+
+      // 0x2542: bit 4 again, and dead for the same reason. When it is set a
+      // cadence nibble of zero, or a negative one, skips what follows.
+      const marked = arr4[next] & 0x10
+      const nibble = arr3[next] & 0x0f
+      if (!(marked && (nibble === 0 || nibble & 0x08)) && gap >= 2) {
+        // 0x2562: far enough apart, and the later swing is set outright.
+        arr6[next] = (arr1[next] - 0x69) & 0xff
+      }
+    }
+    next = i
+  }
+
+  // ------------------------------------------------------------------ 0x2574
+  for (let i = counters.last; ; i--) {
+    const descriptor = arr4[i]
+    if (descriptor & SYLLABLE.PRIMARY && descriptor & SYLLABLE.PAUSE) {
+      const punctuation = arr5[i] & 0x0c
+      if (punctuation === 8) {
+        // 0x25ac: a question.
+        let d1 = round7(muls(sb(arr7[i]), 0x66))
+        arr6[i] = (arr6[i] + d1) & 0xff
+
+        // 0x25ca: the highest middle from here back to the start of the
+        // phrase — `cmp.w` with `bgt`, so this keeps the larger.
+        //
+        // `D1` is not cleared first: only its low byte is replaced each time
+        // round, and its high byte is left over from the rounding above. When
+        // that rounding came out negative the high byte is 0xff, every
+        // comparison is against a negative word, and the highest stays this
+        // syllable's own middle however low it is.
+        let d7 = arr1[i]
+        for (let k = i - 1; k >= 0; k--) {
+          d1 = (d1 & 0xff00) | arr1[k]
+          if (sw(d7) <= sw(d1)) d7 = (d7 & 0xff00) | (d1 & 0xff)
+        }
+
+        // 0x25e2: 154/128 of it, which is more than this syllable's own
+        // middle — so the fall comes out negative and rises instead.
+        arr7[i] = (arr1[i] - ((((d7 & 0xffff) * 0x9a) & 0xffff) >> 7)) & 0xff
+      } else if (punctuation === 4) {
+        // 0x259c: a full stop drops a flat 75.
+        arr7[i] = (arr1[i] - 0x4b) & 0xff
+      }
+    }
+    if (i === 0) break
+  }
 }

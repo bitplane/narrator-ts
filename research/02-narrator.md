@@ -1030,17 +1030,26 @@ engine zeroes what it inserts, and the stress spreader writes only `0x80` and
 `0x40`. Every flag byte reaching this stage across the whole corpus is one of
 0, 0x40, 0x80 or 0xc0.
 
-**The question intonation never fires.** `0x2136` selects a rising cadence
-(`0x30` instead of `0xb0`) when `arr5[n-1]` is 8, and 8 is exactly what
+**One of the two question intonations never fires.** `0x2136` selects a rising
+cadence (`0x30` instead of `0xb0`) when `arr5[n-1]` is 8, and 8 is exactly what
 `0x20d0` writes for a `?`. It cannot be reached, for two independent reasons.
 `0x210a` returns at its second instruction when the phrase ended on a `.` or a
 `?` — which is the only way that 8 gets written. And `0x20bc` has already put
 bit 0 into every entry, so the value is 9 rather than 8 in any case.
 
-So 33.2 has a rising contour in it, addressed and reachable-looking, that no
-input can select. A question is spoken with the same falling cadence as a
-statement. Both are ported as written rather than "fixed": the device does not
-do it, so neither does the port.
+The other one does fire, and this is worth being careful about, because the
+first reading of `0x210a` looks like proof that 33.2 cannot ask a question at
+all. It can. `0x25ac`, inside `0x23ce`, reads the same `arr5` byte on any
+stressed syllable a pause follows, raises that syllable's peak by 102/128 of
+its fall, and then rebuilds the fall from the *highest* middle anywhere earlier
+in the phrase times 154/128. That is larger than the syllable's own middle, so
+the fall comes out negative and the low ends up above the middle: the contour
+turns upward at the end. A `?` also lands the phrase's declination on 115
+rather than 110, at `0x2226`. The corpus drives all three.
+
+So there is a rising contour in 33.2 that no input can select, and a different
+one that a `?` selects every time. The dead one is ported as written rather
+than "fixed": the device does not do it, so neither does the port.
 
 ## Still open
 

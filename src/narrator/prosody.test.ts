@@ -9,6 +9,7 @@ import {
   markCadence,
   markPunctuation,
   markVoiced,
+  linkSyllables,
   scanPhrase,
   syllablePitch,
   syllableRange,
@@ -158,6 +159,7 @@ describe.skipIf(!ready)('the prosody pass, against the device', () => {
     const peaks = pairs(c, 'body/0x21b8')
     const spreads = pairs(c, 'body/0x220c')
     const ranges = pairs(c, 'body/0x230c')
+    const links = pairs(c, 'body/0x23ce')
     for (const [i, [before, after]] of peaks.entries()) {
       it(`phrase pitch: ${base} stressed phrase ${i + 1}`, () => {
         const state = stateOf(before)
@@ -182,6 +184,14 @@ describe.skipIf(!ready)('the prosody pass, against the device', () => {
         const state = stateOf(range[0])
         syllableRange(state)
         expect(shape(state)).toEqual(shapeOf(range[1]))
+      })
+
+      const link = links[i]
+      if (!link) continue
+      it(`link syllables: ${base} stressed phrase ${i + 1}`, () => {
+        const state = stateOf(link[0])
+        linkSyllables(state)
+        expect(shape(state)).toEqual(shapeOf(link[1]))
       })
     }
 
