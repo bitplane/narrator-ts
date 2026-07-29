@@ -87,11 +87,11 @@ Texture, against the same utterance — `tools/voice-texture.py` reproduces it:
 
 | | 33.2 | free |
 |---|---|---|
-| spectral centroid | 2517 Hz | 2390 Hz |
-| energy above 4 kHz | 22.9% | 20.6% |
-| roughness | 0.18 | 0.19 |
-| zero crossings | 390 Hz | 528 Hz |
-| RMS / peak | 25.7 / 122 | 26.5 / 122 |
+| spectral centroid | 2517 Hz | 2380 Hz |
+| energy above 4 kHz | 22.9% | 20.4% |
+| roughness | 0.18 | 0.18 |
+| zero crossings | 390 Hz | 387 Hz |
+| RMS / peak | 25.7 / 122 | 26.8 / 122 |
 
 It was much harsher than that, and then it was clear but slurred — "please
 top what you want me to se". Six things were wrong, and all six were
@@ -132,6 +132,13 @@ structural rather than a matter of taste:
   Which slot follows which is a fact about the table layout rather than a
   choice, so the free set comes out much the same shape as 33.2's: 42 frame
   rules against its 46.
+
+- **A stop's closure made noise.** Frication belongs to the slots the frame
+  rules append, not to the slot that names the phoneme — a closure is silence,
+  which is the whole of what makes a stop a stop. Putting the frication on the
+  head turns /CH/ into /SH/ and takes the stop out of every stop. The release
+  slots had the opposite problem: no formants and no amplitude at all, so the
+  vowel after a stop had to interpolate up from silence.
 
 What is still missing is the *contextual* allophony — the flapped /t/ of
 "butter", and the rest of 33.2's 33-rule first pass. The free set has seven:

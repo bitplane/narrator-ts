@@ -393,15 +393,70 @@ LOUDNESS = {
 # to be summed on top, which is what makes /z/ different from /s/.
 # Frication is quieter than voicing, and a voiced fricative quieter again --
 # the glottis is doing half the work, so the turbulence carries less.
+#
+# Only the continuants are here. A stop or an affricate is silent where it is
+# named -- see RELEASE.
 NOISE = {
     'S': (1, 12), 'Z': (1, 6), 'SH': (2, 10), 'ZH': (2, 6),
     'F': (3, 6), 'V': (3, 4), 'TH': (4, 5), 'DH': (4, 4),
-    'CH': (2, 10), 'J': (2, 6),
-    'P': (5, 7), 'T': (6, 8), 'K': (7, 8),
-    'B': (5, 4), 'D': (6, 4), 'G': (7, 4),
-    'KX': (7, 8), 'GX': (7, 4), 'KH': (7, 8), 'GH': (7, 4),
-    '/H': (4, 5), '/M': (3, 4), '/B': (5, 4), '/R': (5, 4), '/C': (7, 4),
+    '/H': (0, 5), '/M': (0, 4), '/B': (0, 4), '/R': (0, 4), '/C': (0, 4),
 }
+
+# What the slots of a multi-slot consonant are. The head is the *closure*, and
+# a closure is silence -- that is the whole of what makes a stop a stop, and
+# putting frication there turns /CH/ into /SH/ and takes the stop out of every
+# stop. The sound is in the slots the frame rules append after it:
+#
+#   burst        the transient at release, at the closure's own place
+#   aspiration   the puff of glottal noise after a voiceless release, which is
+#                what /S/ deletes in "spin" (Lisker and Abramson 1964)
+#   frication    an affricate's release is held rather than transient -- that
+#                is the difference between /T SH/ and /CH/
+#   voicing      a voiced release has no aspiration; the cords are already on
+#
+# The place table each burst uses is its own; aspiration is noise at the
+# glottis shaped by an open tract, so it takes the diffuse table.
+RELEASE = {
+    'P':  ('closure', 'burst', 'aspiration'),
+    'T':  ('closure', 'burst', 'aspiration'),
+    'K':  ('closure', 'burst', 'aspiration'),
+    'KX': ('closure', 'burst', 'aspiration'),
+    'KH': ('closure', 'burst', 'aspiration'),
+    'B':  ('closure', 'burst', 'voicing'),
+    'D':  ('closure', 'burst', 'voicing'),
+    'G':  ('closure', 'burst', 'voicing'),
+    'GX': ('closure', 'burst', 'voicing'),
+    'GH': ('closure', 'burst', 'voicing'),
+    'CH': ('closure', 'frication', 'aspiration'),
+    'J':  ('closure', 'frication'),
+}
+
+# Which of the eight tables each place bursts through.
+BURST_TABLE = {'P': 5, 'B': 5, 'T': 6, 'D': 6, 'K': 7, 'G': 7,
+               'KX': 7, 'GX': 7, 'KH': 7, 'GH': 7, 'CH': 2, 'J': 2}
+
+# Level of each role, on the voicing byte's 4-bit linear scale. A voiced
+# release is quieter than a voiceless one throughout: the glottis is doing
+# half the work, so less of the airflow is left to go turbulent.
+ROLE_LEVEL = {'closure': 0, 'burst': 7, 'aspiration': 4,
+              'frication': 10, 'voicing': 0}
+
+# How loud the tract is in each role, in dB below full scale. A voiceless
+# closure is silent; everything after it is on its way back to a vowel. A
+# voiced closure is not silent -- the cords keep going behind it, and the
+# low-frequency voice bar that leaks through the walls is the cue that tells
+# /b/ from /p/ when there is no release to hear.
+ROLE_LOUDNESS = {'closure': LOUDNESS['stop'], 'burst': -16,
+                 'aspiration': -14, 'frication': -20, 'voicing': -12}
+VOICE_BAR = -23
+
+
+def _head(i):
+    """The named slot this one belongs to, and how far into it this is."""
+    at = i
+    while at >= 0 and not NAMES[at]:
+        at -= 1
+    return NAMES[at] if at >= 0 else '', i - at
 
 
 def voice_and_amps(f1, f2, f3):
@@ -411,15 +466,23 @@ def voice_and_amps(f1, f2, f3):
     a3 = [0] * COUNT
     voicing = [0] * COUNT
     for i, n in enumerate(NAMES[:COUNT]):
-        feats = set(F.get(n, '').split()) if n else set()
-        if not n and i:
-            feats = set(F.get(NAMES[i - 1], '').split())
+        head, which = _head(i)
+        feats = set(F.get(head, '').split()) if head else set()
         top = LOUDNESS['consonant']
         for cls in ('vowel', 'liquid', 'glide', 'nasal', 'fricative',
                     'stop', 'aspirate', 'consonant'):
             if cls in feats:
                 top = LOUDNESS[cls]
                 break
+        # A release is not a closure, so it is not as quiet as one. What the
+        # amplitude does there is set the level the transition into the next
+        # phoneme interpolates *from*; leave it at a stop's own level and the
+        # vowel after every stop starts from silence.
+        if head in RELEASE and which < len(RELEASE[head]):
+            role = RELEASE[head][which]
+            top = ROLE_LOUDNESS[role]
+            if role == 'closure' and 'voiced' in feats:
+                top = VOICE_BAR
         if f1[i]:
             hz = (f1[i], f2[i], f3[i] * 2)
             back = tuple(v * RATE / 2048 for v in hz)
@@ -431,7 +494,8 @@ def voice_and_amps(f1, f2, f3):
         # every transition into and out of the fricative. Stops keep theirs:
         # a release burst does excite the tract, and that is what the voicing
         # byte's bit 7 is for.
-        if feats & {'fricative', 'aspirate'} and 'voiced' not in feats:
+        if (feats & {'fricative', 'aspirate'} and 'voiced' not in feats
+                and 'continuation' not in feats):
             a1[i] = a2[i] = a3[i] = 0
         if (n or NAMES[i - 1]) in SILENT:
             a1[i] = a2[i] = a3[i] = 0
@@ -441,9 +505,25 @@ def voice_and_amps(f1, f2, f3):
             a2[i] = max(0, a2[i] - round(8 / DB_PER_STEP))
             a3[i] = max(0, a3[i] - round(10 / DB_PER_STEP))
 
-        key = n or NAMES[i - 1]
-        if key in NOISE:
-            table, level = NOISE[key]
+        head, which = _head(i)
+        if head in RELEASE:
+            roles = RELEASE[head]
+            if which >= len(roles):
+                continue
+            role = roles[which]
+            voiced = 'voiced' in set(F[head].split())
+            level = ROLE_LEVEL[role]
+            if voiced:
+                level = max(0, level - 3)
+            if level:
+                table = 0 if role == 'aspiration' else BURST_TABLE[head]
+                voicing[i] = (table << 4) | level
+                if voiced:
+                    voicing[i] |= 0x80
+            if role == 'closure' and not voiced:
+                a1[i] = a2[i] = a3[i] = 0
+        elif (n or NAMES[i - 1]) in NOISE:
+            table, level = NOISE[n or NAMES[i - 1]]
             voicing[i] = (table << 4) | level
             if 'voiced' in feats:
                 voicing[i] |= 0x80
@@ -901,6 +981,17 @@ def main():
         put(n, hz)
     for n, hz in CONSONANTS.items():
         put(n, hz)
+    # A stop's burst radiates from the closure it just broke, so it has the
+    # same place and the same loci. Aspiration is the glottis heard through a
+    # tract already on its way to the next vowel, so it is neutral -- the
+    # uniform tube again. Without these the release slots have no formants at
+    # all, and the amplitude the transition into the vowel interpolates from
+    # is zero.
+    for n, roles in RELEASE.items():
+        i = NAMES.index(n)
+        for k, role in enumerate(roles[1:], start=1):
+            put(n, VOWELS['AX'] if role == 'aspiration' else CONSONANTS[n],
+                at=i + k)
 
     attrs = attributes()
     a1, a2, a3, voicing = voice_and_amps(f1, f2, f3)
