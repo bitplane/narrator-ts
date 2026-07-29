@@ -121,3 +121,12 @@ PLEY4
 KLIY4N
 PRAY4S
 TWEH4LV
+
+# The phrase peak at hunk+0x21b8 is declination: it falls with the number of
+# phrases spoken and rises with the number of boundaries crossed. Its ceiling
+# needs a long phrase and its floor needs a long utterance, so both take a
+# whole sentence rather than a word.
+WAH4N TUW4 THRIY4 FOH4R FAY4V SIH4KS SEH4VEHN EY4T NAY4N TEH4N
+DHIY4Z AA4R DHAH WER4DZ AH4V AH VEH4RIY LAO4NX SEH4NTEHNS
+WAH4N, TUW4, THRIY4, FOH4R, FAY4V, SIH4KS, SEH4VEHN, EY4T, NAY4N.
+EY4, BIY4, SIY4, DIY4, IY4, EH4F, JIY4, EY4CH, AY4, JEY4.

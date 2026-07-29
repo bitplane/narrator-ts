@@ -413,3 +413,38 @@ export function nextPhrase(state: ProsodyState, attrs: Attrs): boolean {
   markCadence(state, syllables)
   return true
 }
+
+/**
+ * hunk+0x21b8. The peak pitch of the phrase's first stressed syllable.
+ *
+ * This is **declination**: the value falls as the utterance goes on. It is
+ * built from how many phrases have been spoken (`pass`) and how many
+ * boundaries have been crossed, not from anything about the syllable itself,
+ * so the sixth phrase of a paragraph starts lower than the first — which is
+ * what a speaker running out of breath actually does.
+ *
+ * The result is clamped to 125..165, and returned because `hunk+0x220c` picks
+ * it up out of `D0` rather than reading it back.
+ */
+export function phrasePeak(state: ProsodyState): number {
+  const { counters } = state
+  const arr1 = state.arr[1].subarray(state.arrAt)
+
+  // 0x21bc: `divu.w`, so this is (boundaries + 4) / 3, truncated.
+  const spread = Math.floor(((counters.boundaries + 4) & 0xffff) / 3)
+
+  // 0x21c2: `(6 - pass) * 2`, floored at zero once six phrases have gone by.
+  let rise = ((6 - counters.pass) << 1) & 0xffff
+  if (rise & 0x8000) rise = 0
+
+  let peak = ((rise * spread) & 0xffff) + 0x7b
+  peak = (peak - ((counters.pass << 3) & 0xffff)) & 0xffff
+
+  // 0x21f2: a floor of 125 and a ceiling of 165, in that order.
+  const signed = (peak << 16) >> 16
+  if (signed <= 0x7d) peak = 0x7d
+  if (((peak << 16) >> 16) >= 0xa5) peak = 0xa5
+
+  arr1[counters.first] = peak & 0xff
+  return peak
+}

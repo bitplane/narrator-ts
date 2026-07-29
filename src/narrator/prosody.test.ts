@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 import {
   markBoundaries,
   nextPhrase,
+  phrasePeak,
   markCadence,
   markPunctuation,
   markVoiced,
@@ -192,6 +193,15 @@ describe.skipIf(!ready)('the prosody pass, against the device', () => {
         markPunctuation(state, counted)
         expect(shape(state)).toEqual(shapeOf(found[2][1]))
       })
+
+      const body = pairs(c, 'body/0x21b8')[i]
+      if (body) {
+        it(`phrase peak: ${tag}`, () => {
+          const state = stateOf(body[0])
+          phrasePeak(state)
+          expect(shape(state)).toEqual(shapeOf(body[1]))
+        })
+      }
 
       it(`cadence: ${tag}`, () => {
         const state = stateOf(found[3][0])
