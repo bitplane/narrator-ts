@@ -49,13 +49,16 @@ STAGES = [
 
 # The workspace runs well past the 0x30c MakeLibrary asked for: three 0x200
 # arrays live at A5+0xe8, +0x2e8 and +0x4e8 (later reused as audio buffers).
-SPAN = 0x800
+SPAN = 0xB00
 
 # Arrays worth naming in the report rather than leaving as raw offsets.
 NAMED = [
     (0x0E8, 0x200, 'phonemes'),
     (0x2E8, 0x200, 'stress'),
     (0x4E8, 0x200, 'flags'),
+    (0x6E8, 0x80, 'arr0'), (0x768, 0x80, 'arr1'), (0x7E8, 0x80, 'arr2'),
+    (0x868, 0x80, 'arr3'), (0x8E8, 0x80, 'arr4'), (0x968, 0x80, 'arr5'),
+    (0x9E8, 0x80, 'arr6'), (0xA68, 0x80, 'arr7'),
 ]
 
 

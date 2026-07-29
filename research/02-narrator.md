@@ -645,6 +645,61 @@ close a span without marking a phrase end, while `.` and `-` do.
 `dbra` with a count of -1 means 65536 iterations, not none, so the port keeps
 the 68k's loop shape rather than turning it into a `for`.
 
+### The eight parameter arrays
+
+`hunk+0x1e1c` is pure setup, and it gives away the shape of the rest: it points
+nine registers at **eight 0x80-byte arrays** running from `A5+0x6e8` to
+`A5+0xa68`, alongside the three phoneme arrays. Eight, and the frame is eight
+bytes wide — the front half builds one array per frame field and `0x29d8`
+interleaves them.
+
+They are **not** indexed by frame. For `/HEH4LOW` only three entries are
+filled, and three is the number of vowels in it (`QX`, `EH`, `OW` — the seeded
+lead-in counts). The first three arrays for that word read:
+
+```
+arr0  110  134  135
+arr1  110  140  136
+arr2  110  115  110
+```
+
+110 is the default `pitch` parameter, and the triples are a pitch contour per
+syllable: flat on the lead-in, up-and-over on the stressed `EH4`, falling away
+on the final `OW`. So the pitch machinery works per syllable and a later stage
+expands it across frames.
+
+`tools/capture-stages.py` records all eight, plus `A5+0x20`..`0xb0`, at every
+stage boundary.
+
+### The duration model
+
+`hunk+0x1520` reads a per-phoneme duration from a table at `hunk+0x3806`, and
+adds `0x80` to the pointer when bit 4 of the stress byte is clear — so there
+are **two tables, stressed and unstressed**, and bit 4 is the one the onset
+marker and the spreader both set. Durations are in frames:
+
+| | stressed | unstressed |
+|---|---:|---:|
+| `OY` | 34 | 13 |
+| `AA` | 24 | 10 |
+| `IY` | 19 | 6 |
+| `AX` | 14 | 5 |
+| `S` | 15 | 6 |
+| `T` | 8 | 5 |
+| `DX` | 4 | 2 |
+| `,` | 36 | 36 |
+| `-` | 24 | 24 |
+
+Diphthongs are longest, the flap `DX` is shortest, and the punctuation
+"phonemes" are pause lengths that ignore stress entirely.
+
+Two entries read 0 in both tables and both are corroboration rather than
+coincidence: the syllabics `UL`/`UM`/`UN`/`IL`/`IM`/`IN`, because the first
+rewrite pass always expands them and they never reach this stage — and `NH`,
+which is one of the three phonemes that crash the device when spoken alone.
+
+`tools/extract-phonemes.py` reads both tables.
+
 ## Still open
 
 - **How phonemes become frames** — the duration model, and how `rate` and

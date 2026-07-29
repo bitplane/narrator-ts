@@ -47,6 +47,14 @@ STAGES = [
 
 PHONEMES, STRESS, FLAGS, COUNT = 0x0E8, 0x2E8, 0x4E8, 0x9A
 
+# hunk+0x1e1c points nine registers at eight 0x80-byte arrays running from
+# A5+0x6e8 to A5+0xa68. Eight of them, and the frame is eight bytes wide --
+# the front half builds one array per frame field and 0x29d8 interleaves them.
+PARAMS = [0x6E8, 0x768, 0x7E8, 0x868, 0x8E8, 0x968, 0x9E8, 0xA68]
+PARAM_LEN = 0x80
+# The scalars and array pointers the stages hand each other, A5+0x20..0xb0.
+SCALARS = (0x20, 0x90)
+
 
 def capture(device, phrase, opts, steps):
     n = Narrator(device)
@@ -71,6 +79,8 @@ def capture(device, phrase, opts, steps):
             'phonemes': list(cpu.read(a5 + PHONEMES, take)),
             'stress': list(cpu.read(a5 + STRESS, take)),
             'flags': list(cpu.read(a5 + FLAGS, take)),
+            'params': [list(cpu.read(a5 + b, PARAM_LEN)) for b in PARAMS],
+            'scalars': list(cpu.read(a5 + SCALARS[0], SCALARS[1])),
         })
 
     snap('parse')

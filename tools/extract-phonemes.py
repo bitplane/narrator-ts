@@ -35,6 +35,15 @@ COUNT = 112
 ATTRS = 0x2F08
 ATTR_COUNT = 102
 
+# Two per-phoneme duration tables, in frames, read by hunk+0x1520. Bit 4 of
+# the stress byte -- the one the onset marker and the spreader both set --
+# picks between them, so these are "stressed" and "unstressed" durations.
+# The syllabics UL/UM/UN/IL/IM/IN read 0 in both because the first rewrite
+# pass always expands them and they never reach this stage; NH reads 0 too,
+# and NH is one of the three phonemes that crash the device when spoken alone.
+DURATION = 0x3806
+DURATION_UNSTRESSED = 0x3886
+
 # Bits the code is seen to test, with the offset that tests them. Named only
 # where the surrounding code makes the meaning plain; the rest are recorded by
 # number rather than guessed at.
@@ -65,6 +74,11 @@ def attrs(data):
             for i in range(ATTR_COUNT)]
 
 
+def durations(data):
+    return [[data[DURATION + i], data[DURATION_UNSTRESSED + i]]
+            for i in range(ATTR_COUNT)]
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('binary')
@@ -72,12 +86,13 @@ def main():
     args = ap.parse_args()
 
     data = read_hunk(args.binary)
-    nm, at = names(data), attrs(data)
+    nm, at, du = names(data), attrs(data), durations(data)
 
     rows = []
     for i, n in enumerate(nm):
         a = at[i] if i < ATTR_COUNT else None
         rows.append({'index': i, 'name': n, 'attrs': a,
+                     'duration': du[i] if i < ATTR_COUNT else None,
                      'bits': sorted(b for b in range(32) if a >> b & 1)
                      if a is not None else None})
 
@@ -92,7 +107,9 @@ def main():
             print(f'  {r["index"]:3} {label:14} --------  (stress digit)')
             continue
         flags = ' '.join(BITS.get(b, str(b)) for b in r['bits'])
-        print(f'  {r["index"]:3} {label:14} {r["attrs"]:08x}  {flags}')
+        d = r['duration']
+        print(f'  {r["index"]:3} {label:14} {r["attrs"]:08x} '
+              f'{d[0]:3}/{d[1]:<3} {flags}')
 
 
 if __name__ == '__main__':
