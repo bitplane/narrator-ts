@@ -27,6 +27,25 @@ the Amiga table.
 
 Used by `tools/nrl-diff.py` and `tools/gen-nrl-table.py`.
 
+## `formants.json`
+
+The measured formant frequencies of ten American English vowels:
+
+> G. E. Peterson and H. L. Barney, *Control Methods Used in a Study of the
+> Vowels*, Journal of the Acoustical Society of America 24(2), 175-184, 1952.
+> Table II, adult male means.
+
+Measurements are facts rather than expression, and these particular ones have
+been reproduced in every phonetics textbook since. They are here because
+33.2's own vowel table appears to have been built from them: read back through
+`tools/formants.py --diff`, its `IY` lands within one Hz of the published
+`270 / 2290 / 3010`, and `AO`'s third formant is exact. 25 of 30 values agree
+within 10%.
+
+That matters for the free voice. Rebuilding the vowels from this table is not
+an approximation of what SoftVoice did — it is the same thing they did, from
+the same source.
+
 ## `nrl-table.json`
 
 The same rules, built into the shape the library loads — a `TranslatorTables`,

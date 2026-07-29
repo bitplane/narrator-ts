@@ -1,0 +1,18 @@
+{
+  "source": "Peterson, G. E. and Barney, H. L., 'Control Methods Used in a Study of the Vowels', Journal of the Acoustical Society of America 24(2), 175-184, 1952. Table II, adult male means.",
+  "note": "Measured formant frequencies of ten American English vowels, in Hz. Facts rather than expression; reproduced in every phonetics textbook since.",
+  "unit": "Hz",
+  "speaker": "adult male",
+  "vowels": {
+    "IY": [270, 2290, 3010],
+    "IH": [390, 1990, 2550],
+    "EH": [530, 1840, 2480],
+    "AE": [660, 1720, 2410],
+    "AA": [730, 1090, 2440],
+    "AO": [570, 840, 2410],
+    "UH": [440, 1020, 2240],
+    "UW": [300, 870, 2240],
+    "AH": [640, 1190, 2390],
+    "ER": [490, 1350, 1690]
+  }
+}
