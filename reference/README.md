@@ -83,8 +83,22 @@ against is stated rather than assumed — the attribute words, derived from
 phonetic features alone, agree with 33.2's on 98% of their bits, and an
 utterance comes out within 7% of the same length.
 
-**Provisional, and marked so in the generator:** the amplitude tilt, the
-glottal waveform envelope, and the eight fricative spectra are the parts that
-want an ear rather than an argument. There are also no allophonic rewrite
+**Known wrong, and measured:** it is harsher than 33.2. Against the same
+utterance —
+
+| | 33.2 | free |
+|---|---|---|
+| spectral centroid | 2418 Hz | 3379 Hz |
+| energy above 4 kHz | 22.6% | 34.9% |
+| zero crossings | 607 Hz | 1466 Hz |
+| RMS | 23.7 | 64.3 |
+
+33.2's zero-crossing rate tracks F1 almost alone, which says how completely
+the first formant dominates there. Two suspects, in order: the amplitude
+tilt is still too gentle, and the glottal waveform envelope in
+`waveform()` peaks mid-period when a real pulse is strongest immediately
+after closure — its first row comes out silent, which is backwards.
+
+Reproduce the numbers with `tools/voice-texture.py`. There are also no allophonic rewrite
 rules yet, so the contextual variation — flapped /t/, aspirated stops, the
 syllabic consonants — is missing. It speaks; it is not finished.
