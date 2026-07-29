@@ -50,10 +50,13 @@ STAGES = [
 # capturing them lets each be ported and checked on its own rather than only
 # at the far end of all seven.
 #
-#   0x1970  first, and the likeliest home of the main duration assignment
+#   0x1970  drops the phonemes that are not spoken, attribute bit 20
 #   0x1492  gives the continuation slots rewrite pass 2 created their own
 #           durations from hunk+0x3806, inheriting the previous stress
-#   0x1586, 0x15e0, 0x1472, 0x172a, 0x17d6  not yet read
+#   0x1586  totals the durations and allocates the frame array
+#   0x15e0  writes formants and voicing into every frame
+#   0x1472  clears the pitch bytes and marks frame 0
+#   0x172a, 0x17d6  coarticulation, not yet read
 SUBSTAGES = [
     (0x1458, 'dur/0x1970'),
     (0x145C, 'dur/0x1492'),
@@ -74,6 +77,13 @@ PARAM_LEN = 0x80
 # The scalars and array pointers the stages hand each other, A5+0x20..0xb0.
 SCALARS = (0x20, 0x90)
 
+# hunk+0x1586 sums the durations into A5+0x3a, allocates 8 bytes per frame
+# plus one spare at A5+0x28, and the three sub-routines after it fill that
+# array in. It is the stage's real output and lives in allocated memory rather
+# than the workspace, so the diff tracer cannot see it -- record it here.
+FRAME_PTR, FRAME_TOTAL, FRAME = 0x28, 0x3A, 8
+MAX_FRAMES = 4096
+
 
 def capture(device, phrase, opts, steps, sub=False):
     n = Narrator(device)
@@ -82,12 +92,21 @@ def capture(device, phrase, opts, steps, sub=False):
     h0 = n.hunks[0].addr
     cpu = n.m.cpu
     if not capture_frames.run_to(n, phrase, h0 + STAGES[0][0], opts):
-        return {'in': phrase, 'ok': False}
+        return {'in': phrase, 'opts': opts, 'ok': False}
 
     marks = {h0 + off: name for off, name in STAGES + (SUBSTAGES if sub else [])}
     last = h0 + STAGES[-1][0]
     a5 = cpu.get(A5)
     out = []
+
+    def frames():
+        """The frame array, once hunk+0x1586 has allocated one."""
+        ptr = cpu.r32(a5 + FRAME_PTR)
+        total = cpu.r32(a5 + FRAME_TOTAL)
+        if not ptr or not 0 < total <= MAX_FRAMES:
+            return None
+        raw = cpu.read(ptr, (total + 1) * FRAME)
+        return [list(raw[i * FRAME:(i + 1) * FRAME]) for i in range(total + 1)]
 
     def snap(name):
         count = cpu.r16(a5 + COUNT)
@@ -100,6 +119,7 @@ def capture(device, phrase, opts, steps, sub=False):
             'flags': list(cpu.read(a5 + FLAGS, take)),
             'params': [list(cpu.read(a5 + b, PARAM_LEN)) for b in PARAMS],
             'scalars': list(cpu.read(a5 + SCALARS[0], SCALARS[1])),
+            'frames': frames(),
         })
 
     snap('parse')
@@ -109,14 +129,14 @@ def capture(device, phrase, opts, steps, sub=False):
         if name is not None and pc != h0 + STAGES[0][0]:
             snap(name)
             if pc == last:
-                return {'in': phrase, 'ok': True, 'stages': out}
+                return {'in': phrase, 'opts': opts, 'ok': True, 'stages': out}
         cpu.execute(1)
         if n.m.sched.switch_pending:
             n.m.sched.switch_pending = False
             n.m.sched.switch()
         if n.m.finished:
-            return {'in': phrase, 'ok': False, 'stages': out}
-    return {'in': phrase, 'ok': False, 'stages': out}
+            return {'in': phrase, 'opts': opts, 'ok': False, 'stages': out}
+    return {'in': phrase, 'opts': opts, 'ok': False, 'stages': out}
 
 
 def main():

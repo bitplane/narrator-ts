@@ -44,6 +44,23 @@ ATTR_COUNT = 102
 DURATION = 0x3806
 DURATION_UNSTRESSED = 0x3886
 
+# hunk+0x15e0 fills the frame array from a contiguous block of 0x80-byte
+# per-phoneme tables: the three formant phase increments it writes into frame
+# bytes 0-2, the three amplitudes into bytes 3-5, and the voicing byte into 6.
+# The names are what the renderer does with each byte (research/02, "The frame
+# format") rather than a guess from the tables' contents.
+#
+# A stressed phoneme has 2 added to each amplitude, clamped at 0x1f, which is
+# most of what stress *sounds* like. A non-zero `sex` parameter (A5+0x26)
+# swaps the frequency triple for a second set at hunk+0x50ae -- higher
+# formants, the same amplitudes and the same voicing.
+PARAM_TABLES = {
+    'f1': 0x3506, 'f2': 0x3586, 'f3': 0x3606,
+    'a1': 0x3686, 'a2': 0x3706, 'a3': 0x3786,
+    'voicing': 0x3A06,
+}
+PARAM_TABLES_ALT = {'f1': 0x50AE, 'f2': 0x512E, 'f3': 0x51AE}
+
 # Bits the code is seen to test, with the offset that tests them. Named only
 # where the surrounding code makes the meaning plain; the rest are recorded by
 # number rather than guessed at.
@@ -79,6 +96,10 @@ def durations(data):
             for i in range(ATTR_COUNT)]
 
 
+def params(data, tables):
+    return {k: list(data[b:b + ATTR_COUNT]) for k, b in tables.items()}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('binary')
@@ -87,12 +108,18 @@ def main():
 
     data = read_hunk(args.binary)
     nm, at, du = names(data), attrs(data), durations(data)
+    pa = params(data, PARAM_TABLES)
+    pa_alt = params(data, PARAM_TABLES_ALT)
 
     rows = []
     for i, n in enumerate(nm):
         a = at[i] if i < ATTR_COUNT else None
         rows.append({'index': i, 'name': n, 'attrs': a,
                      'duration': du[i] if i < ATTR_COUNT else None,
+                     'params': {k: v[i] for k, v in pa.items()}
+                     if i < ATTR_COUNT else None,
+                     'paramsAlt': {k: v[i] for k, v in pa_alt.items()}
+                     if i < ATTR_COUNT else None,
                      'bits': sorted(b for b in range(32) if a >> b & 1)
                      if a is not None else None})
 

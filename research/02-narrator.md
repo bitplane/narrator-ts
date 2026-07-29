@@ -741,7 +741,57 @@ duration across two slots.
 `0x1970` turned out not to be the duration assignment at all. It is a
 compaction: it walks the three arrays and drops every phoneme whose attribute
 bit 20 is set — the space and the bracket markers — copying the survivors down
-to index 0. That is why the stage tracer sees it rewrite all three arrays.
+to index 0. That is why the stage tracer sees it rewrite all three arrays. It
+does **not** fix up `A5+0x9a`, so the count stays at the pre-compaction length
+and every stage after this one walks to the `0xff` instead.
+
+### `hunk+0x1454` is where phonemes become frames
+
+`0x1586` is the hinge. It totals `flags[i] & 0x3f` over the whole array,
+allocates eight bytes per frame plus one spare, and puts the pointer in
+`A5+0x28` — so the frame array is built *here*, not in `0x29d8`. A second
+allocation of one byte per frame goes in `A5+0x2c` when `A5+0xdb` says the
+caller wants mouth shapes.
+
+`0x15e0` then writes each phoneme's parameters into every frame it occupies,
+from a contiguous block of 0x80-byte tables:
+
+| table | frame bytes | what |
+|---|---|---|
+| `0x3506`, `0x3586`, `0x3606` | 0-2 | F1, F2, F3 phase increments |
+| `0x3686`, `0x3706`, `0x3786` | 3-5 | their amplitudes |
+| `0x3a06` | 6 | voicing |
+| `0x50ae`, `0x512e`, `0x51ae` | 0-2 | the second voice's frequencies |
+
+The frequencies are a vowel chart: `IY` is F1 25 / F2 203, `AA` is 65 / 106,
+`UW` is 32 / 116 — high-front, low-back, high-back, exactly where they belong.
+The second voice raises them and leaves the amplitudes and the voicing alone,
+which is what `sex` actually does.
+
+Three things fall out of this routine that are worth naming.
+
+**Stress is mostly loudness.** A stressed phoneme gets 2 added to each of its
+three amplitudes. Only the first is clamped, at `0x1f`; the other two are
+allowed to wrap. That asymmetry is in the instructions, not a slip here.
+
+**`.` and `?` borrow the formants of whatever preceded them** (`0x16ac`), so
+the silence keeps the mouth where the speech left it rather than snapping to a
+neutral shape.
+
+**A stop's release is coloured by the vowel after it.** `0x1492` writes a code
+3, 4, 5 or 6 into the low nibble of a continuation slot's stress byte, chosen
+by the *following* phoneme's attribute bits 3, 5 and 6; `0x15e0` then shifts
+that into bits 4-6 of the voicing byte, which is what picks one of the eight
+fricative tables. Those attribute bits are vowel frontness and rounding — bit
+3 on the front vowels and `Y`, bit 5 on the back and rounded ones, bit 6 on
+the most rounded. So the burst of "key" and the burst of "coo" are different
+tables, which is a real coarticulation effect and not a lookup convenience.
+
+And `0x15e0`'s fill loop is `subq` then `dbra`, so a duration of **zero writes
+65536 frames rather than none**. That is not a missing guard — it is why `NH`,
+whose duration is 0 in both tables, crashes the device when it is the only
+phoneme in an utterance. The other two crashing phonemes are `LX` and `RX`,
+and `RX` is the one `0x1492` gives a special case to.
 
 ### Durations are assigned by `hunk+0x1be8`, into the flag array
 
@@ -809,12 +859,13 @@ it is also what exposed the missing rewrite rules above.
 - **How phonemes become frames.** The parser, both rewrite passes, the onset
   marker, the stress spreader and the duration assignment are done. What is
   left is the pitch machinery (`0x1ee0` and `0x2160`, filling the eight
-  parameter arrays per syllable); the rest of `0x1454`, whose `0x1586` sets
-  `A5+0x28` and so is where the frame array is allocated and laid out;
-  `0x19bc`, which masks the stress byte to its high nibble and writes a
-  contour code 1..6 into the low one before calling `0x1a8e`; and `0x29d8`,
-  which writes the frame array itself into allocated memory rather than the
-  workspace, which is why the stage tracer sees it change nothing.
+  parameter arrays per syllable); the two coarticulation routines at the end
+  of `0x1454` (`0x172a` and `0x17d6`, which bend each phoneme's block of
+  identical frames into its neighbours and are the only reason the output is
+  not a sequence of steady states); `0x19bc`, which masks the stress byte to
+  its high nibble and writes a contour code 1..6 into the low one before
+  calling `0x1a8e`; and `0x29d8`, which fills in the pitch byte and the
+  transitions into and out of silence.
   `fixtures/golden/frames.json` already holds the frames the device produced
   for each captured utterance, so this has an oracle waiting for it the way
   the renderer did.

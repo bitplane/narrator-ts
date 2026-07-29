@@ -54,7 +54,32 @@ DURATIONS = [
     (0x1E04, 'clamp to 0x3f'),
 ]
 
-ROUTINES = {'durations': DURATIONS}
+# The ported sub-routines of the frame-array builder, hunk+0x1454.
+FRAMES = [
+    (0x19A8, '0x1970 keep a phoneme'),
+    (0x19B0, '0x1970 done'),
+    (0x14B8, '0x1492 RX averages with its predecessor'),
+    (0x14F4, '0x1492 split a duration across two slots'),
+    (0x1518, '0x1492 a continuation slot inherits stress'),
+    (0x152E, '0x1492   from the unstressed table'),
+    (0x1552, '0x1492   noise source 3'),
+    (0x155E, '0x1492   noise source 6'),
+    (0x156A, '0x1492   noise source 5'),
+    (0x1572, '0x1492   noise source 4'),
+    (0x15FE, '0x15e0 terminator'),
+    (0x164E, '0x15e0 stressed, +2 on A1'),
+    (0x1658, '0x15e0   A1 clamped at 0x1f'),
+    (0x165E, '0x15e0   +2 on A2'),
+    (0x1666, '0x15e0   +2 on A3'),
+    (0x1686, '0x15e0 noise source from the stress byte'),
+    (0x169A, '0x15e0 the second voice frequency table'),
+    (0x16AC, '0x15e0 . and ? borrow the previous formants'),
+    (0x16D4, '0x15e0 mouth shapes wanted'),
+    (0x16EC, '0x15e0 unstressed noise halved'),
+    (0x147E, '0x1472 mark frame 0'),
+]
+
+ROUTINES = {'durations': DURATIONS, 'frames': FRAMES}
 
 
 def run(device, phrase, opts, marks, steps, counts):

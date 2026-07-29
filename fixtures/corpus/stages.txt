@@ -79,3 +79,45 @@ IHNTEH4LIHJEHNS
 DHIHS IHZ AH TEH4ST
 /HAW AA4R YUW.
 WAH4T IHZ IHT,
+
+# Sentence-final punctuation, which hunk+0x16ac gives the formants of whatever
+# came before it rather than any of its own.
+DHAE4T.
+/HUW4?
+WEH4L, OW4K.
+STAA4P. GOW4.
+
+# Stops and their releases, which is where the noise source in the low nibble
+# of the stress byte comes from — one per branch of hunk+0x1544.
+AE4KT
+DAA4KTER
+AEKSEH4PT
+BREH4KFAHST
+KAE4PCHER
+AH4PSEHT
+BAE4GPAYP
+SAH4BJEHKT
+
+# Loud stressed vowels, to reach the amplitude clamp at hunk+0x1658.
+AA4
+AO4R
+AW4CH
+OY4STER
+
+# Which burst a stop's release makes is chosen by the *following* vowel's
+# attributes — bit 3 for the front vowels and Y, bit 5 for the back and
+# rounded ones, bit 6 for the most rounded. So "key" and "coo" release
+# differently, and these are the pairs that show it.
+KIY4
+KUW4L
+TUW4
+PUW4L
+KWIH4K
+KAO4L
+PAO4R
+TAH4B
+GOW4LD
+PLEY4
+KLIY4N
+PRAY4S
+TWEH4LV
