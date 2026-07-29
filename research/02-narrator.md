@@ -898,6 +898,42 @@ phonotactically impossible string can exercise a branch and still tell you
 nothing — and every reachable point is now driven at least four times. Writing
 it is also what exposed the missing rewrite rules above.
 
+### The contour, and where the pitch actually lands
+
+`hunk+0x19bc` is two calls. The first, `0x19c4`, throws away everything the
+earlier stages left in the low nibble of the stress byte and puts three flags
+there instead — the vowel (1), the phoneme the fall starts on (2), and the
+last voiced phoneme before the fall runs out (4).
+
+The second, `0x1a8e`, writes a pitch period into a *handful* of frames — the
+ones those flags pinned — and leaves the rest at zero for `0x29d8` to
+interpolate between. Every value is
+
+    period = 1221000 / pitch / v
+
+and 1,221,000 is exactly 11,100 x the default pitch of 110. It is an immediate
+in the binary, loaded twice with the first load dead, so it assumes the
+default sample rate: changing `sampfreq` does not move it. A larger `v` gives
+a *shorter* period, so the four arrays hold frequencies and the frame holds a
+period.
+
+Per syllable it pins up to four points, from `arr0`..`arr3`:
+
+| | |
+|---|---|
+| `arr0` | the peak, on the syllable's first frame |
+| `arr2` | the low, on the last frame before the fall |
+| `arr1` | the middle, placed by **how far the pitch has to travel** on each leg rather than at the halfway point in time, so a big early drop puts it early |
+| `arr3` | bits 4-6, halved: a rise added back at the end of the voiced run |
+
+When `arr3` is non-zero there is a third leg, and the fall is squeezed into the
+first half of the run to make room for it — `n - n/2`, so an odd number of
+frames rounds up. That third leg is the question intonation.
+
+`mode` 1 skips all of it and writes one period into every frame, from a
+hard-coded 110 rather than the `pitch` parameter it has already divided by.
+That is the robot voice.
+
 ## Still open
 
 - **How phonemes become frames.** The parser, both rewrite passes, the onset

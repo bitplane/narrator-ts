@@ -134,16 +134,19 @@ python3 tools/capture-stages.py --sub -f fixtures/corpus/frames.txt \
     -o fixtures/golden/stages.json
 python3 tools/capture-stages.py --sub --sex 1 -f fixtures/corpus/frames.txt \
     -o fixtures/golden/stages-sex1.json
+python3 tools/capture-stages.py --sub --mode 1 -f fixtures/corpus/frames.txt \
+    -o fixtures/golden/stages-mode1.json
 ```
 
-`--sub` also breaks inside `hunk+0x1454`, which is a driver of seven
-sub-routines, so each of those can be checked on its own. The second run is
-not redundant: one branch of the frame builder swaps in a whole second table
-of formant frequencies and is chosen by a *parameter*, so no corpus of phrases
-can reach it however it is written.
+`--sub` also breaks inside `hunk+0x1454`, a driver of seven sub-routines, and
+between the two halves of `hunk+0x19bc`, so each of those can be checked on
+its own. The extra runs are not redundant: `sex` swaps in a whole second table
+of formant frequencies and `mode` replaces the pitch contour with a flat one.
+Both are chosen by a *parameter*, so no corpus of phrases can reach them
+however it is written.
 
 Without those the front-half tests skip rather than fail, which is quiet
-enough to miss — `npx vitest run` should report upwards of 1,200 tests.
+enough to miss — `npx vitest run` should report upwards of 1,800 tests.
 
 Two corpora feed that last pair because they are chosen for different things.
 `frames.txt` picks phrases that reach distinct paths through the *render*
@@ -156,8 +159,8 @@ python3 tools/branch-coverage.py -r durations \
     -f fixtures/corpus/frames.txt -f fixtures/corpus/stages.txt
 ```
 
-`-r` also takes `frames` and `blend`, for the two halves of the frame-array
-builder.
+`-r` also takes `frames` and `blend` for the two halves of the frame-array
+builder, and `contour` and `pitch` for the two halves of `hunk+0x19bc`.
 
 That counts the device's own visits to each decision point in a routine. A
 port can match every fixture and still be wrong down a branch the fixtures

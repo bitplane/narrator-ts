@@ -78,8 +78,10 @@ PHONEMES, STRESS, FLAGS, COUNT = 0x0E8, 0x2E8, 0x4E8, 0x9A
 # the front half builds one array per frame field and 0x29d8 interleaves them.
 PARAMS = [0x6E8, 0x768, 0x7E8, 0x868, 0x8E8, 0x968, 0x9E8, 0xA68]
 PARAM_LEN = 0x80
-# The scalars and array pointers the stages hand each other, A5+0x20..0xb0.
-SCALARS = (0x20, 0x90)
+# The scalars and array pointers the stages hand each other. Starts at 0x10
+# because hunk+0x1a8e reads A5+0x1c, the divisor it turns into the period
+# constant at A5+0x20.
+SCALARS = (0x10, 0xA0)
 
 # hunk+0x1586 sums the durations into A5+0x3a, allocates 8 bytes per frame
 # plus one spare at A5+0x28, and the three sub-routines after it fill that

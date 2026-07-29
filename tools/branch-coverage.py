@@ -113,8 +113,21 @@ CONTOUR = [
     (0x1A78, '0x19c4 the span ran out before a vowel'),
 ]
 
+# hunk+0x1a8e, the pitch pass that reads the contour flags.
+PITCH = [
+    (0x1AC2, '0x1a8e next phoneme'),
+    (0x1ADA, '0x1a8e the last pitch of the utterance'),
+    (0x1AFA, '0x1a8e skip, not a peak'),
+    (0x1B00, '0x1a8e a peak'),
+    (0x1B52, '0x1a8e squeeze the fall, a rise follows'),
+    (0x1B7E, '0x1a8e place the middle'),
+    (0x1B90, '0x1a8e nowhere to travel, no middle'),
+    (0x1BB4, '0x1a8e the rise at the end of the voiced run'),
+    (0x1BCA, '0x1a8e monotone'),
+]
+
 ROUTINES = {'durations': DURATIONS, 'frames': FRAMES, 'blend': BLEND,
-            'contour': CONTOUR}
+            'contour': CONTOUR, 'pitch': PITCH}
 
 
 def run(device, phrase, opts, marks, steps, counts):
