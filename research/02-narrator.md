@@ -934,6 +934,34 @@ frames rounds up. That third leg is the question intonation.
 hard-coded 110 rather than the `pitch` parameter it has already divided by.
 That is the robot voice.
 
+### `hunk+0x29d8` is a driver too
+
+Eight sub-routines over the frame array, and `capture-stages.py --sub` now
+breaks after each so they can be ported one at a time the way `0x1454` was:
+
+| | |
+|---|---|
+| `0x2aba` x4 | fill runs of zero in bytes 0, 1, 2 and 7 |
+| `0x2d54`, `0x2d86`, `0x2dca`, `0x2d54` | second passes over F2, F3 and the pitch |
+| `0x2bc6` | re-marks a few frames, and clears a voicing byte |
+| `0x2a4a` | fill runs of `0xfe` in bytes 3, 4 and 5 |
+| `0x2d1c` | scales the amplitudes |
+| `0x2ae0` | no effect on any captured utterance |
+| `0x2e80` | the mouth-shape stream, when `A5+0xdb` asks for it |
+
+The first and the sixth share one interpolator, `0x2a6a`. It walks a straight
+line in 1/32nds: the endpoints are shifted up five bits, the step is
+`(to - from) * 32 / frames` computed once with `divs.w`, and each frame shifts
+the accumulator back down. The rounding is therefore a running one and the
+last frame does not necessarily land exactly on the target.
+
+What differs between the two callers is the hole marker, and the reason is
+worth having. The frequency and pitch columns use **zero**, because a
+frequency of zero is silence and a pitch of zero is meaningless — neither can
+be a value anyone meant. The amplitude columns cannot use zero, because zero
+*is* a real amplitude: it is silence, and a stop's closure is exactly that. So
+they use `0xfe`, which is what `hunk+0x17d6` writes.
+
 ## Still open
 
 - **How phonemes become frames.** The parser, both rewrite passes, the onset
@@ -944,8 +972,7 @@ That is the robot voice.
   identical frames into its neighbours and are the only reason the output is
   not a sequence of steady states); `0x19bc`, which masks the stress byte to
   its high nibble and writes a contour code 1..6 into the low one before
-  calling `0x1a8e`; and `0x29d8`, which fills in the pitch byte and the
-  transitions into and out of silence.
+  calling `0x1a8e`; and seven of `0x29d8`'s eight sub-routines.
   `fixtures/golden/frames.json` already holds the frames the device produced
   for each captured utterance, so this has an oracle waiting for it the way
   the renderer did.

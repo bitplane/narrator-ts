@@ -126,8 +126,19 @@ PITCH = [
     (0x1BCA, '0x1a8e monotone'),
 ]
 
+# The interpolation core of hunk+0x29d8.
+INTERPOLATE = [
+    (0x2ACE, '0x2aba column done'),
+    (0x2AD8, '0x2aba nothing between, step on'),
+    (0x2ADC, '0x2aba fill a run of zeroes'),
+    (0x2AA2, '0x2a92 column done'),
+    (0x2AB2, '0x2a92 nothing between, step on'),
+    (0x2AB6, '0x2a92 fill a run of 0xfe'),
+    (0x2A82, '0x2a6a one interpolated frame'),
+]
+
 ROUTINES = {'durations': DURATIONS, 'frames': FRAMES, 'blend': BLEND,
-            'contour': CONTOUR, 'pitch': PITCH}
+            'contour': CONTOUR, 'pitch': PITCH, 'interpolate': INTERPOLATE}
 
 
 def run(device, phrase, opts, marks, steps, counts):

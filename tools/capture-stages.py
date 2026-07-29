@@ -69,6 +69,21 @@ SUBSTAGES = [
     # and period pass that reads them.
     (0x19BE, 'contour/0x19c4'),
     (0x19C2, 'contour/0x1a8e'),
+    # hunk+0x29d8 is a driver too, of eight sub-routines over the frame array.
+    # The first four are the same routine run on one byte column each.
+    (0x29F0, 'frames/fill-f1'),      # 0x2aba on byte 0
+    (0x29FA, 'frames/fill-f2'),      # 0x2aba on byte 1
+    (0x2A04, 'frames/fill-f3'),      # 0x2aba on byte 2
+    (0x2A0E, 'frames/fill-pitch'),   # 0x2aba on byte 7
+    (0x2A18, 'frames/0x2d54-f2'),
+    (0x2A22, 'frames/0x2d86-f3'),
+    (0x2A26, 'frames/0x2dca'),
+    (0x2A30, 'frames/0x2d54-pitch'),
+    (0x2A34, 'frames/0x2bc6'),
+    (0x2A36, 'frames/fill-amplitudes'),   # 0x2a4a -> 0x2a92 on bytes 3, 4, 5
+    (0x2A3A, 'frames/0x2d1c'),
+    (0x2A3E, 'frames/0x2ae0'),
+    (0x2A48, 'frames/0x2e80-mouth'),
 ]
 
 PHONEMES, STRESS, FLAGS, COUNT = 0x0E8, 0x2E8, 0x4E8, 0x9A
