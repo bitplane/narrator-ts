@@ -709,6 +709,131 @@ FRICATIVE = [
 ]
 
 
+# ---------------------------------------------------------------------------
+# Rewrite rules. The driver runs the engine twice (speak.ts) over two tables:
+# allophones first, then frame expansion.
+#
+# The second is not optional decoration. Several phonemes are stored as more
+# than one slot -- a diphthong's nucleus and its offglide, a stop's closure and
+# its release -- and only the first of each is in the inventory the parser
+# matches. Without a rule to append the rest, /AY/ is its nucleus alone and
+# every diphthong in the language loses its glide: "type" comes out "top".
+# Which slot follows which is a fact about the table layout, not a choice.
+#
+# A rule is (match, left, right) with 0xff for "any", a replacement, two
+# insertion points, and three groups of attribute tests -- on the phoneme, its
+# left neighbour and its right. A test passes when its bit is *clear*, so
+# 0xdf (bit 31, which nothing sets) is the idiom for "no test".
+ANY = 0xFF
+NO_TEST = 0xDF
+RESCAN = 2          # keep matching further rules at this position
+SKIP_RIGHT = 4      # look past a space to the right
+
+
+def _test(bit, want=True, last=True):
+    """One attribute test: the named bit of the subject's attribute word."""
+    return (0x80 if last else 0) | 0x40 | (0x20 if want else 0) | BIT[bit]
+
+
+def _rule(match, replace=ANY, after=ANY, left=ANY, right=ANY, flags=0,
+          on_right=()):
+    tests = [NO_TEST, NO_TEST]
+    if on_right:
+        tests += [_test(b, w, i == len(on_right) - 1)
+                  for i, (b, w) in enumerate(on_right)]
+    else:
+        tests.append(NO_TEST)
+    return {'at': 0, 'match': match, 'left': left, 'right': right,
+            'flags': flags, 'replace': replace, 'insertBefore': ANY,
+            'insertAfter': after, 'tests': tests}
+
+
+def _index(name, occurrence=0):
+    seen = -1
+    for i, n in enumerate(NAMES):
+        if n == name:
+            seen += 1
+            if seen == occurrence:
+                return i
+    raise KeyError(name)
+
+
+def frame_rules():
+    """The multi-slot phonemes, expanded into the slots they are made of."""
+    out = []
+
+    # A diphthong is a nucleus and an offglide, and DIPHTHONGS gave the slot
+    # after each its glide target. UX is stored as a single vowel but ends in
+    # the same /u/ offglide, so it borrows UW's.
+    for name in DIPHTHONGS:
+        out.append(_rule(_index(name), after=_index(name) + 1))
+    out.append(_rule(_index('UX'), after=_index('UW') + 1))
+
+    # A velar closure follows the vowel after it: further forward before a
+    # front vowel, back and rounded before a rounded one. CONSONANTS holds the
+    # three loci already, so the rule only has to choose between them.
+    # Coarticulation is anticipatory here, which is why the test is on the
+    # right neighbour (Ohman 1966).
+    for plain, mid_v, back_v in (('G', 'GX', 'GH'), ('K', 'KX', 'KH')):
+        out.append(_rule(_index(plain), replace=_index(mid_v), flags=RESCAN,
+                         on_right=(('mid', True),)))
+        out.append(_rule(_index(plain), replace=_index(mid_v), flags=RESCAN,
+                         on_right=(('round', False), ('back', True))))
+        out.append(_rule(_index(plain), replace=_index(back_v), flags=RESCAN,
+                         on_right=(('back', True), ('round', True))))
+
+    # /H is a voiceless version of the vowel it introduces, so it takes that
+    # vowel's shape the same way.
+    for slot, tests in (('/M', (('mid', True),)),
+                        ('/B', (('round', False), ('back', True))),
+                        ('/R', (('back', True), ('round', True)))):
+        out.append(_rule(_index('/H'), replace=_index(slot), on_right=tests))
+
+    # A stop is a closure and a release, and the release is two slots: the
+    # burst, then what follows it. For a voiceless stop that is aspiration --
+    # except after /S/, where English has none, which is the whole difference
+    # between "pin" and "spin" (Lisker and Abramson 1964). The unaspirated
+    # release is the one the voiced stops use, so /S P/ borrows /B/'s.
+    # RESCAN on the inserting rule matters: the engine leaves the cursor on
+    # what it just inserted, so without it the outer loop steps past the
+    # release and the rule that appends its second half never sees it.
+    stops = ('B', 'D', 'G', 'GX', 'GH', 'P', 'T', 'K', 'KX', 'KH')
+    S = _index('S')
+    for stop, voiced in (('P', 'B'), ('T', 'D'), ('K', 'G')):
+        out.append(_rule(_index(stop), after=_index(voiced) + 1, left=S,
+                         flags=RESCAN | SKIP_RIGHT))
+    for stop in stops:
+        out.append(_rule(_index(stop), after=_index(stop) + 1,
+                         flags=RESCAN | SKIP_RIGHT))
+    for stop in stops:
+        out.append(_rule(_index(stop) + 1, after=_index(stop) + 2))
+
+    # An affricate is a stop and the fricative it releases into. The table
+    # gives /CH/ two slots for that and /J/ one, so they expand to match.
+    out.append(_rule(_index('CH'), after=_index('CH') + 1, flags=RESCAN))
+    out.append(_rule(_index('CH') + 1, after=_index('CH') + 2))
+    out.append(_rule(_index('J'), after=_index('J') + 1))
+    return out
+
+
+def allophone_rules():
+    """Context-dependent substitutions, run before the frame expansion."""
+    out = []
+    # The six syllabic consonants are a reduced vowel plus the consonant --
+    # exactly what the translator's ULUMUNILIMIN set abbreviates. Expanding
+    # them here is what lets the vowel take a syllable's worth of prosody.
+    for name, vowel in (('UL', 'AX'), ('UM', 'AX'), ('UN', 'AX'),
+                        ('IL', 'IX'), ('IM', 'IX'), ('IN', 'IX')):
+        out.append(_rule(_index(name), replace=_index(vowel), flags=RESCAN,
+                         after=_index(name[1])))
+    # /l/ is velarised in the coda -- "dark l". The contrast is allophonic in
+    # English and the two are far enough apart acoustically to matter: LX has
+    # its own low F2 locus.
+    out.append(_rule(_index('L'), replace=_index('LX'),
+                     on_right=(('vowel', False),)))
+    return out
+
+
 def fricatives(seed=0x1F2E3D4C):
     """hunk+0x4c2e: eight 480-byte noise tables.
 
@@ -803,11 +928,9 @@ def main():
         'stressed': st,
         'unstressed': un,
         'gain': gain_curve(),
-        # No allophonic rules yet. The engine runs without them; what is lost
-        # is the contextual variation -- flapped /t/, aspirated stops, the
-        # syllabic consonants -- not the ability to speak.
-        'rules': {'allophones': {'at': 0, 'bytes': 0, 'rules': []},
-                  'frames': {'at': 0, 'bytes': 0, 'rules': []}},
+        'rules': {'allophones': {'at': 0, 'bytes': 0,
+                                 'rules': allophone_rules()},
+                  'frames': {'at': 0, 'bytes': 0, 'rules': frame_rules()}},
         'wave': waveform(),
         'amp': amp_table(),
         'fricatives': fricatives(),

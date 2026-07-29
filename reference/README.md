@@ -87,11 +87,11 @@ Texture, against the same utterance — `tools/voice-texture.py` reproduces it:
 
 | | 33.2 | free |
 |---|---|---|
-| spectral centroid | 2517 Hz | 2458 Hz |
-| energy above 4 kHz | 22.9% | 22.2% |
-| roughness | 0.18 | 0.21 |
-| zero crossings | 390 Hz | 561 Hz |
-| RMS / peak | 25.7 / 122 | 25.4 / 122 |
+| spectral centroid | 2517 Hz | 2390 Hz |
+| energy above 4 kHz | 22.9% | 20.6% |
+| roughness | 0.18 | 0.19 |
+| zero crossings | 390 Hz | 528 Hz |
+| RMS / peak | 25.7 / 122 | 26.5 / 122 |
 
 It was much harsher than that, and then it was clear but slurred — "please
 top what you want me to se". Five things were wrong, and all five were
@@ -123,6 +123,17 @@ structural rather than a matter of taste:
   ring-down of the last pulse plus Rosenberg's rising flow of the current one
   — put the crest factor within 0.1 dB of 33.2's.
 
-There are also no allophonic rewrite rules yet, so the contextual variation —
-flapped /t/, aspirated stops, the syllabic consonants — is missing. It speaks;
-it is not finished.
+- **There were no rewrite rules at all**, which I had written off as missing
+  polish. It is not: the driver runs the engine twice, and the second pass is
+  what expands a phoneme into the several slots it is really stored as. A
+  diphthong's offglide and a stop's release live in the blank slots after
+  their nucleus, and only the nucleus is in the inventory the parser matches.
+  Without the rules, every diphthong in the language was its nucleus alone —
+  *type* came out *top*, *say* came out *se*, and *five* was unrecognisable.
+  Which slot follows which is a fact about the table layout rather than a
+  choice, so the free set comes out much the same shape as 33.2's: 42 frame
+  rules against its 46.
+
+What is still missing is the *contextual* allophony — the flapped /t/ of
+"butter", and the rest of 33.2's 33-rule first pass. The free set has seven:
+the six syllabic consonants and dark /l/. It speaks; it is not finished.
