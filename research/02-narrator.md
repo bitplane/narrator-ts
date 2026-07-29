@@ -3,9 +3,10 @@
 Offsets are **hunk**-relative (`hunk = file - 0x24`) and cite build 33.2
 `1e9f46e0` unless stated otherwise.
 
-This covers bringing the device up and getting audio out of it. The synthesis
-pipeline itself — the ~22KB between `hunk+0x36e` and `hunk+0x5230` — is not
-disassembled here yet.
+This covers bringing the device up, getting audio out of it, and the synthesis
+pipeline: command dispatch, which stage is which, the frame format and the
+renderer. The front half — how phonemes become frames — is mapped but not
+decoded; see "Still open".
 
 ## It is not a library you can call
 
