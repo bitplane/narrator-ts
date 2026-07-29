@@ -1045,16 +1045,32 @@ do it, so neither does the port.
 ## Still open
 
 - **How phonemes become frames.** Two gaps left, both with an oracle already
-  in place. The **pitch machinery** — `0x1ee0` and `0x2160`, and the three
-  routines they call at `0x1f02`, `0x1fd8` and `0x20bc` — fills the four
-  per-syllable arrays that `0x1a8e` reads, and is the last stage of the front
-  half that has not been read at all. And **three of `0x29d8`'s nine
-  sub-routines**: `0x2bc6`, which re-marks a few frames and clears a voicing
-  byte; `0x2ae0`, which changes nothing on any captured utterance and so needs
-  an input that provokes it before it can be checked; and `0x2e80`, the
-  mouth-shape stream, which needs a `CMD_READ` the rig does not issue.
-  `capture-stages.py --sub` breaks after each, so they can be taken one at a
-  time.
+  in place and both broken into sub-routines that `capture-stages.py --sub`
+  breaks after, so they can be taken one at a time.
+
+  `hunk+0x2160`, the pitch loop's **body**, is a driver of seven routines and
+  is what turns the syllable descriptions into the actual pitch values in
+  `arr0`, `arr1` and `arr2`. Its own frame is read: `mode` skips all seven, a
+  phrase with no primary stress skips the first four, and it ends by advancing
+  the eight array cursors by the syllable count. The first of the seven,
+  `0x21b8`, is done — it is **declination**, the peak pitch of a phrase's
+  first stressed syllable, built from how many phrases have been spoken and
+  how many boundaries crossed rather than from anything about the syllable,
+  and clamped to 125..165. So the sixth phrase of a paragraph starts lower
+  than the first.
+
+  Six left: `0x220c`, `0x230c`, `0x23ce`, `0x25f8`, `0x2642` and `0x2864`,
+  about 1,600 bytes with the last two doing the bulk. Registers flow *between*
+  them — `0x2160` loads five counters into `D3`..`D7`, `0x21b8` leaves its
+  result in `D0` and rewrites `D7` as `(boundaries + 4) / 3`, and `0x220c`
+  reads both — so they have to be ported in order with the registers threaded,
+  the way `prosody.ts` already threads `D4`.
+
+  And **three of `0x29d8`'s nine**: `0x2bc6`, which re-marks a few frames and
+  clears a voicing byte; `0x2ae0`, which changes nothing on any captured
+  utterance and so needs an input that provokes it before it can be checked;
+  and `0x2e80`, the mouth-shape stream, which needs a `CMD_READ` the rig does
+  not issue.
 - **What the attribute bits mean.** 102 longwords, and the parser only tests
   four of them (0, 25, 26, 27). The rest are read by the stages above and are
   recorded by number rather than guessed at — several are clearly phonetic
