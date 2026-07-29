@@ -40,6 +40,9 @@ tools/
   nrl-diff.py          measure the Amiga table against the published NRL rules
   gen-nrl-table.py     build the free NRL-only table from the report alone
   nrl-divergence.ts    measure what that free table costs, against 33.2
+  probe-phonemes.py    discover a narrator build's phoneme set by asking it
+  make-narrator-corpus.py  build the phoneme corpus from that inventory
+  narrator-survey.py   how many distinct synthesizers are there really
   fetch-musashi.sh     vendor the 68000 core
   oracle/
     shim.c             flat memory + trap dispatch around Musashi
@@ -89,6 +92,18 @@ done
 Just under 10,000 phrases take about six seconds per version through the
 emulator, so regenerating every version is a matter of seconds.
 
+The narrator's corpus is phonemes rather than text, and is built from the
+inventory the device itself admits to:
+
+```sh
+python3 tools/make-narrator-corpus.py -o fixtures/corpus/phonemes.txt
+python3 tools/make-narrator-corpus.py --subset 300 -o fixtures/corpus/phonemes-subset.txt
+python3 tools/narrator-survey.py          # ~7 minutes, all five builds
+```
+
+Synthesis is slower than translation but not by much — about 80x realtime, so
+the full 4,865-phrase corpus is 45 seconds per build.
+
 ## Status
 
 | | |
@@ -100,11 +115,17 @@ emulator, so regenerating every version is a matter of seconds.
 | **TypeScript translator** | **byte-exact against all 6 builds on both corpora** |
 | free NRL-only table | built, checked in, 64.6% word agreement with 33.2 |
 | `narrator.device` under emulation | **speaking, on all 5 builds** — 1.6 through 37.7 |
+| narrator corpus | 4,865 phrases; **two synthesizers across 5 builds**, measured |
 | TypeScript synthesizer | not started |
 
 Only two distinct translator behaviours exist across 1985-1991: 1.3, and
 31.7 onwards (which includes the V37 rewrite). The single difference is
 whether `-ER`/`-ING` may take a trailing `S`; see `src/translator/engines.ts`.
+
+The narrator splits two ways as well, and not where the version numbers
+suggest: 1.6, 31.13, 33.2 and 36.9 are **sample-identical** over 4,865 phrases
+and every parameter extreme, and 37.7 is the rewrite. So the synthesizer is
+one implementation plus a second backend, not five.
 
 A sample of what the real library, running here, actually produces:
 
@@ -116,6 +137,11 @@ A sample of what the real library, running here, actually produces:
 'versatile'            -> 'VERSAETAY3L '
 ```
 
+The last one is wrong, and is supposed to be — a faithful reimplementation has
+to mispronounce it too. Blaming the NRL rules for that would be too easy,
+though: they give `VERSAETIHL`, and it is a rule SoftVoice *added* that turns
+it into "versa-tile". See `research/03-nrl-provenance.md`.
+
 And the narrator, driven from the same rig:
 
 ```sh
@@ -126,11 +152,6 @@ python3 tools/oracle/narrator.py -t 'hello world' -o hello.wav
 Output is Paula-native — 8-bit signed samples plus the period they were written
 with — because that is what the chip consumes and what the library will take as
 its primitive. `research/02-narrator.md` has the device's side of it.
-
-The last one is wrong, and is supposed to be — a faithful reimplementation has
-to mispronounce it too. Blaming the NRL rules for that would be too easy,
-though: they give `VERSAETIHL`, and it is a rule SoftVoice *added* that turns
-it into "versa-tile". See `research/03-nrl-provenance.md`.
 
 ## Licence position
 

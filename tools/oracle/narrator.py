@@ -14,6 +14,7 @@ Output is Paula-native: 8-bit signed samples and the period they were written
 with. The WAV is a convenience, and the period decides its sample rate.
 """
 import argparse
+import hashlib
 import json
 import struct
 import sys
@@ -46,6 +47,9 @@ DEFAULTS = {'rate': 150, 'pitch': 110, 'mode': 0, 'sex': 0,
 # Left/right channel pairs, the allocation list every narrator example uses.
 CHANNEL_MASKS = bytes([3, 5, 10, 12])
 
+# The phoneme input buffer. Cleared per utterance; see say().
+INBUF = 4096
+
 
 class Narrator:
     def __init__(self, path=DEFAULT_DEV, translator=None):
@@ -60,7 +64,7 @@ class Narrator:
         self.reply = self._make_port('narrator-reply')
         self.masks = self.m.alloc(len(CHANNEL_MASKS), 'ch_masks')
         self.m.cpu.write(self.masks, CHANNEL_MASKS)
-        self.inbuf = self.m.alloc(4096, 'phonemes')
+        self.inbuf = self.m.alloc(INBUF, 'phonemes')
 
     def _bring_up(self):
         """Three conventions, none of which can be assumed from the version.
@@ -130,12 +134,27 @@ class Narrator:
                           a={A0: name, A1: self.req, A6: self.execlib.base})
         return err
 
-    def say(self, phonemes, **params):
-        """CMD_WRITE the phoneme string and return the captured audio."""
+    def say(self, phonemes, max_cycles=200_000_000, trailing=b'', **params):
+        """CMD_WRITE the phoneme string and return the captured audio.
+
+        `max_cycles` matters because some inputs do not come back: a lone `LX`,
+        `NH` or `RX` sends 1.6 through 36.9 off to address zero. That is the
+        device's own bug, reproduced rather than papered over — see
+        research/02-narrator.md — so the caller needs a way to bound it.
+        """
         cpu = self.m.cpu
         opts = dict(DEFAULTS, **{k: v for k, v in params.items() if v is not None})
         raw = phonemes.encode('latin-1', 'replace')
-        cpu.write(self.inbuf, raw + b'\0')
+        # Wipe the whole buffer, not just terminate the string. The device
+        # reads past io_Length — 1.6 by two bytes, 37.7 by one, 33.2 by none —
+        # so leftovers from the previous utterance are live input. That is the
+        # device's behaviour and is measured deliberately elsewhere; here it
+        # would only make a corpus depend on the order it was run in.
+        # `trailing` replaces the terminator with chosen bytes, starting
+        # exactly at io_Length — which is how the over-read is measured
+        # (tools/narrator-survey.py). By default it is just a NUL.
+        cpu.clear(self.inbuf, INBUF)
+        cpu.write(self.inbuf, raw + (trailing or b'\0'))
 
         cpu.w16(self.req + IO_COMMAND, 3)                      # CMD_WRITE
         cpu.w8(self.req + IO_ERROR, 0)
@@ -152,7 +171,8 @@ class Narrator:
 
         before = len(self.audio.writes)
         rc = self.m.call(self.m.execlib.base - 456, a={A1: self.req,
-                                                       A6: self.execlib.base})
+                                                       A6: self.execlib.base},
+                         max_cycles=max_cycles)
         err = cpu.r8(self.req + IO_ERROR)
         if err > 127:
             err -= 256
@@ -165,6 +185,53 @@ class Narrator:
                 f'  exec calls so far: {used}')
 
 
+def digest(writes):
+    """A fingerprint of one utterance, as audio.device received it.
+
+    Samples *and* the parameters that give them meaning: two streams with the
+    same bytes on different channels, or at a different period, are not the
+    same utterance. Hashing rather than storing keeps a survey of thousands of
+    phrases small enough to diff; anything that differs can be re-run and
+    compared sample by sample.
+    """
+    h = hashlib.sha256()
+    for w in writes:
+        h.update(f'{w.channel}:{w.period}:{w.volume}:{w.cycles}:'.encode())
+        h.update(w.samples)
+    return h.hexdigest()
+
+
+def run_corpus(device, phrases, params=None, max_cycles=20_000_000, on_error=None):
+    """Speak every phrase, yielding one record each.
+
+    A crashing phrase takes the whole machine with it — there is no unwinding
+    a 68k that has jumped to address zero — so the machine is rebuilt and the
+    run continues. That costs a bring-up per crash, which is why crashes are
+    recorded rather than skipped: they are results, and they are rare.
+    """
+    params = params or {}
+    n = Narrator(device)
+    if n.open():
+        raise RuntimeError(f'{device}: narrator.device refused to open')
+    for phrase in phrases:
+        try:
+            r = n.say(phrase, max_cycles=max_cycles, **params)
+            yield {'in': phrase, 'err': r['io_Error'],
+                   'writes': len(r['writes']),
+                   'samples': sum(len(w.samples) for w in r['writes']),
+                   'periods': sorted({w.period for w in r['writes']}),
+                   'channels': sorted({w.channel for w in r['writes']}),
+                   'sha': digest(r['writes'])}
+        except (AmigaError, RuntimeError) as exc:
+            if on_error:
+                on_error(phrase, exc)
+            yield {'in': phrase, 'err': None, 'writes': 0, 'samples': 0,
+                   'periods': [], 'channels': [], 'sha': 'crash',
+                   'crash': str(exc)[:80]}
+            n = Narrator(device)
+            n.open()
+
+
 def write_wav(path, samples, rate):
     """8-bit mono. WAV's 8-bit format is unsigned; Paula's is signed."""
     pcm = bytes((s + 128) & 0xFF for s in samples)
@@ -175,16 +242,41 @@ def write_wav(path, samples, rate):
     Path(path).write_bytes(hdr + pcm)
 
 
+def corpus_mode(args):
+    """Speak a whole file, one JSON object per line."""
+    lines = [l.rstrip('\n') for l in
+             Path(args.file).read_text(encoding='latin-1').splitlines()]
+    lines = [l for l in lines if l.strip()]
+    params = {k: getattr(args, k) for k in DEFAULTS
+              if getattr(args, k) is not None}
+    crashes = []
+    sink = open(args.out, 'w') if args.out else sys.stdout
+    n = 0
+    for rec in run_corpus(args.device, lines, params,
+                          on_error=lambda p, e: crashes.append(p)):
+        sink.write(json.dumps(rec) + '\n')
+        n += 1
+    if args.out:
+        sink.close()
+    print(f'{n} phrases -> {args.out or "stdout"}'
+          + (f'; {len(crashes)} crashed: {crashes[:5]}' if crashes else ''),
+          file=sys.stderr)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('-d', '--device', default=DEFAULT_DEV)
     ap.add_argument('-p', '--phonemes', help='speak a phoneme string directly')
     ap.add_argument('-t', '--text', help='translate first, then speak')
-    ap.add_argument('-o', '--out', help='write a WAV here')
+    ap.add_argument('-o', '--out', help='write a WAV here, or JSON lines with -f')
+    ap.add_argument('-f', '--file', help='one phoneme string per line')
     ap.add_argument('--json', action='store_true', help='describe the writes')
     for name, default in DEFAULTS.items():
         ap.add_argument(f'--{name}', type=int, help=f'default {default}')
     args = ap.parse_args()
+
+    if args.file:
+        return corpus_mode(args)
 
     phonemes = args.phonemes
     if args.text:

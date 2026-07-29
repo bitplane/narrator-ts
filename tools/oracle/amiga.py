@@ -46,8 +46,22 @@ class Hunk:
         self.index, self.kind, self.addr, self.size = index, kind, addr, size
 
 
+# The Musashi core is a process-global singleton — one register file, one RAM,
+# shared by every Cpu handle — so a second Machine silently guts the first.
+# Left undetected that is the worst kind of bug here: the older Machine goes on
+# answering, with another binary's memory underneath it, and the fixtures are
+# quietly wrong. So construction retires its predecessor and using a retired
+# one raises. Run builds in separate processes to have two at once.
+_live = None
+
+
 class Machine:
     def __init__(self, ram_size=RAM_SIZE, trace=False):
+        global _live
+        if _live is not None:
+            _live.retired = True
+        _live = self
+        self.retired = False
         self.cpu = Cpu(ram_size)
         self.trace = trace
         self.brk = HEAP_BASE
@@ -357,6 +371,11 @@ class Machine:
         Other tasks run too, whenever this one blocks — a device's server task
         does all its work in the window where the caller is sitting in WaitIO.
         """
+        if self.retired:
+            raise AmigaError(
+                'this Machine was retired when a later one was built — the 68k '
+                'core is process-global. Use one Machine at a time, or run each '
+                'binary in its own process.')
         cpu = self.cpu
         self.sched.restore(self.host_task)
         cpu.set(SR, 0x0000)               # user mode, interrupts enabled

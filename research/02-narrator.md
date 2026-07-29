@@ -138,27 +138,92 @@ So the natural capture format is Paula's own — samples plus a period — and a
 resampling is the consumer's business. `rate` changes the number of samples;
 `pitch`, `sex` and `mode` change their content but not their count.
 
-## How many synthesizers are there really?
+## The phoneme inventory
 
-Four phrases, every build, comparing the full write stream — samples, channel,
-period and volume:
+Discovered by asking rather than by decoding the table: `probe-phonemes.py`
+speaks every one- and two-letter spelling and every `/X`, and keeps what the
+device accepts. Acceptance alone over-counts — 385 of 728 candidates "work" on
+33.2, because `BB` is just `B` then `B` — so the inventory is the tokens that
+cannot be split into two accepted singles. That test is decisive here because
+A, C, E, H, I, O, U and X are not phonemes on their own, so everything real has
+a half that cannot stand alone.
 
 | | |
 |---|---:|
-| 1.6, 31.13, 33.2, 36.9 | 211,968 samples, **identical** |
-| 37.7 | 167,936 samples, different |
+| 1.6, 31.13, 33.2, 36.9 | **61** phonemes |
+| 37.7 | **55** |
 
-**Two behaviours across 1985-1991**, the same shape as the translator. This is
-four phrases, not a corpus, so it is a strong hint and not yet a result — the
-proper survey is the next piece of work. But it does confirm that 37.7 has to
-be a second backend rather than a parameterisation of the first.
+The two sets are not nested. 37.7 dropped `/B`, `/M`, `/R`, `GH`, `GX`, `KH`,
+`KX` and `UX`, and gained `LX` and `RX` — which is the same pair that crashes
+the older engine, below. It corroborates the table read straight out of the
+binary: the six syllabics are exactly the `ULUMUNILIMIN` string at hunk+0xf4c,
+and the five specials exactly the `/H/M/B/R/C` in the table itself.
+
+## A lone LX, NH or RX is fatal
+
+On 1.6, 31.13, 33.2 and 36.9, speaking any one of those three on its own
+never returns: the device runs off into address zero. Not a rig artefact —
+all four builds do it identically, everything else in the inventory is fine,
+and 37.7 handles all three (`LX` and `RX` speak, `NH` is rejected cleanly).
+
+They are allophones the device presumably only ever expects to generate
+internally. Inside a pair they are harmless, so the corpus includes them there
+and excludes them alone.
+
+## How many synthesizers are there really?
+
+**Two.** The write stream — samples, channel, period, volume and cycle count —
+is compared over the whole corpus, and separately over a subset at each end of
+every parameter's range, because agreeing at the defaults alone is weak
+evidence:
+
+```
+              full corpus         parameter sweep
+              4,865 phrases       301 x 11 settings
+1.6 31.13 33.2 36.9      0                      0
+vs 37.7              4,864                  3,311
+```
+
+**1.6 through 36.9 are sample-identical**, 1985 to 1990, at every setting
+tried including rate 40 and 400, pitch 65 and 320, both sexes, both modes and
+sample rates from 5 kHz to 28 kHz. 37.7 differs on everything: the five phrases
+it agrees on are the ones both reject.
+
+The same shape as the translator, and it means the TypeScript needs one
+synthesizer for four builds plus a second backend for 37.7 — not five.
+
+A first pass over four phrases said the same thing; a second, before the
+over-read below was understood, said *three* engines on the strength of 26
+phrases out of 4,865. Both were the same corpus artefact. It is worth
+recording that the wrong answer here was not obviously wrong.
+
+## Reading past io_Length
+
+The device does not stop where it is told to:
+
+| build | bytes read past `io_Length` |
+|---|---:|
+| 1.6, 31.13 | **2** |
+| 33.2, 36.9 | 0 |
+| 37.7 | 1 |
+
+So on 1.6 a short phoneme string preceded by a longer one is spoken with the
+tail of its predecessor attached. `SAA4FAES` then `SHAH4` fails with "illegal
+phoneme" while `SHAH4` alone is fine, because the buffer still reads
+`SHAH4\0ES` and the `E` is not a phoneme.
+
+This is the one axis on which 33.2 is not identical to 1.6, and it is about
+input handling rather than synthesis — which is why the sweeps hand the device
+a cleared buffer and measure this separately. A caller that passes a buffer
+with stale bytes in it is relying on undefined behaviour, and on 1.6 it bites.
 
 ## Errors
 
 `io_Error` is reported faithfully. An illegal phoneme gives **-20**, which is
 worth knowing because it is easy to produce by accident: `/H` is a single
 phoneme, so `/WER4LD` is not "world" with a stray slash, it is an unknown
-phoneme `/W` and the device rejects the lot.
+phoneme `/W` and the device rejects the lot. A bare `HEH4LOW` fails the same
+way, for the same reason.
 
 ## What the rig needed
 
@@ -184,5 +249,6 @@ captured after. Confusing the two either loses the call or repeats it.
 
 - The synthesis pipeline: `hunk+0x36e` onwards, ~22KB. Nothing here touches it.
 - The mouth-shape stream (`mouth_rb`), whose width/height nibbles are at
-  `hunk+0x5798`.
-- Whether the four identical builds stay identical over a real corpus.
+  `hunk+0x5798`. Not yet captured by the rig at all.
+- Whether the parameter sweep's one-axis-at-a-time grid hides anything. A
+  difference that needs two extremes at once would not show up.
