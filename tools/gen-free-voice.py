@@ -369,24 +369,54 @@ def amplitudes(f1_hz, f2_hz, f3_hz, top):
     """The three stored amplitudes for a formant triple.
 
     `top` is how far below full scale the loudest formant sits, in dB.
+
+    A formant that exists is never given zero. The control scale runs out at
+    30 dB and the model asks for more than that on the back vowels -- it puts
+    /AH/'s third formant 26 dB under its first, and once the first is
+    anywhere below full scale that rounds to nothing. Silence is not a quiet
+    formant: this synthesiser has three oscillators and no cascade, so F3 is
+    the *only* thing above F2, and switching it off empties the spectrum from
+    2 kHz up. It is audible as a vowel you cannot place. 33.2 keeps its own
+    third formant at 1 to 5 on exactly the vowels this model wants to zero.
     """
     if not f1_hz:
         return 0, 0, 0
-    return tuple(max(0, min(31, round(31 + (top + db) / DB_PER_STEP)))
-                 for db in formant_levels(f1_hz, f2_hz, f3_hz))
+    return tuple(max(1 if hz else 0, min(31, round(31 + (top + db) / DB_PER_STEP)))
+                 for hz, db in zip((f1_hz, f2_hz, f3_hz),
+                                   formant_levels(f1_hz, f2_hz, f3_hz)))
 
 
-# How loud each class is, in dB below full scale. The ordering is the relative
-# phoneme powers of Sacia and Beck (1926), as tabulated by Fletcher, *Speech
-# and Hearing in Communication* (1953): vowels loudest, then the liquids and
-# glides a few dB down, nasals below those, the sibilants below them, and the
-# other fricatives and the stop bursts at the bottom -- a range of about 30 dB
-# end to end. The values are this file's, chosen to put a vowel's three summed
-# formants a little under the rail; only their spacing comes from Fletcher.
+# How loud each class is, in dB below full scale.
+#
+# What this sets is the level of the *loudest formant*, and for anything
+# voiced that is the glottal source arriving at F1 -- so every sonorant gets
+# the same number. A nasal is not a quiet vowel: its murmur has a first
+# formant as strong as any, and what the antiformant of the closed oral
+# cavity takes away is everything above it (Fujimura 1962), which is applied
+# separately. A liquid or a glide is a vowel with a different tongue. Rating
+# them by Fletcher's *segment powers* -- which is what this table used to do
+# -- confuses total energy over a short segment with the level of the source,
+# and pulls F1 down by 6 to 11 dB across two thirds of running speech.
+#
+# The obstruents are genuinely quieter, because their source is turbulence at
+# a constriction rather than the glottis. There the ordering is Fletcher's:
+# *Speech and Hearing in Communication* (1953), after Sacia and Beck (1926).
 LOUDNESS = {
-    'vowel': -6, 'liquid': -11, 'glide': -12, 'nasal': -16,
+    'vowel': -5, 'liquid': -5, 'glide': -5, 'nasal': -5,
     'fricative': -24, 'stop': -30, 'aspirate': -28, 'consonant': -18,
 }
+
+# The exception, and it is a big one. hunk+0x2ae0 does not render a nasal from
+# the nasal's own row: it copies a *murmur* row over all six parameter bytes
+# of every frame, /M/ taking UL's, /N/ UM's and /NX/ UN's. So those rows are
+# what a nasal actually sounds like, and giving them a sonorant's level -- as
+# their own attributes ask for, since a syllabic consonant is a vowel -- puts
+# every nasal in the language at full vowel loudness.
+#
+# A murmur is not that. The oral cavity is shut, so all of it radiates through
+# the nose, and the nasal tract is long, soft-walled and lossy: heavily damped
+# and well below the vowels either side (Fujimura 1962).
+MURMUR = -18
 
 # The eight noise tables, by place of articulation. Bits 4-6 of the voicing
 # byte pick one; bits 0-3 are how loud it is; bit 7 asks for a voiced formant
@@ -483,6 +513,9 @@ def voice_and_amps(f1, f2, f3):
             top = ROLE_LOUDNESS[role]
             if role == 'closure' and 'voiced' in feats:
                 top = VOICE_BAR
+        murmur = head in SYLLABIC
+        if murmur:
+            top = MURMUR
         if f1[i]:
             hz = (f1[i], f2[i], f3[i] * 2)
             back = tuple(v * RATE / 2048 for v in hz)
@@ -501,7 +534,7 @@ def voice_and_amps(f1, f2, f3):
             a1[i] = a2[i] = a3[i] = 0
         # A nasal's oral cavity is closed, so the antiformant flattens
         # everything above the murmur (Fujimura 1962).
-        if 'nasal' in feats:
+        if 'nasal' in feats or murmur:
             a2[i] = max(0, a2[i] - round(8 / DB_PER_STEP))
             a3[i] = max(0, a3[i] - round(10 / DB_PER_STEP))
 

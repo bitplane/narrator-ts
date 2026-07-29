@@ -140,6 +140,27 @@ structural rather than a matter of taste:
   slots had the opposite problem: no formants and no amplitude at all, so the
   vowel after a stop had to interpolate up from silence.
 
+## `wordlist.txt`
+
+88 monosyllables covering the vowel inventory and the consonants in onset and
+coda, for `tools/intelligibility.py`. Ordinary English words, chosen for
+coverage; nothing in the list is anybody's property.
+
+**This is the measurement that matters, and it is the one that is failing.**
+Whisper, given each word inside a carrier phrase, scores:
+
+| | |
+|---|---|
+| 33.2 voice, 33.2 letter-to-sound | 35/88 = 40% |
+| free voice, 33.2 letter-to-sound | 8/88 = 9% |
+| free voice, free letter-to-sound | 6/88 = 7% |
+
+The letter-to-sound table costs about one word. Everything else is the voice.
+That gap is invisible to `voice-texture.py`, which has the two agreeing to
+within a few percent on centroid, roughness and high-frequency share — sounding
+like 33.2 and being as intelligible as 33.2 are different properties, and only
+the second one matters.
+
 What is still missing is the *contextual* allophony — the flapped /t/ of
 "butter", and the rest of 33.2's 33-rule first pass. The free set has seven:
 the six syllabic consonants and dark /l/. It speaks; it is not finished.
