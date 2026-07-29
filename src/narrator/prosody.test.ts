@@ -5,11 +5,12 @@ import { describe, expect, it } from 'vitest'
 import {
   markBoundaries,
   nextPhrase,
-  phrasePeak,
+  phrasePitch,
   markCadence,
   markPunctuation,
   markVoiced,
   scanPhrase,
+  syllablePitch,
   type ProsodyState,
 } from './prosody.js'
 
@@ -150,6 +151,30 @@ describe.skipIf(!ready)('the prosody pass, against the device', () => {
       .join('')
     const base = JSON.stringify(c.in) + opts
 
+    // hunk+0x2160 skips its whole body for a phrase with no primary stress in
+    // it, so these are counted off against each other rather than against the
+    // phrase index — a capture can hold fewer of them than it holds phrases.
+    const peaks = pairs(c, 'body/0x21b8')
+    const spreads = pairs(c, 'body/0x220c')
+    for (const [i, [before, after]] of peaks.entries()) {
+      it(`phrase pitch: ${base} stressed phrase ${i + 1}`, () => {
+        const state = stateOf(before)
+        phrasePitch(state)
+        expect(shape(state)).toEqual(shapeOf(after))
+      })
+
+      const spread = spreads[i]
+      if (!spread) continue
+      it(`syllable pitch: ${base} stressed phrase ${i + 1}`, () => {
+        // `D0` carries hunk+0x21b8's result into hunk+0x220c, so it has to
+        // come from running that rather than from the snapshot.
+        const pitch = phrasePitch(stateOf(before))
+        const state = stateOf(spread[0])
+        syllablePitch(state, pitch)
+        expect(shape(state)).toEqual(shapeOf(spread[1]))
+      })
+    }
+
     for (const [i, [before, after]] of loopPairs(c).entries()) {
       it(`whole loop test: ${base} phrase ${i + 1}`, () => {
         const state = stateOf(before)
@@ -193,15 +218,6 @@ describe.skipIf(!ready)('the prosody pass, against the device', () => {
         markPunctuation(state, counted)
         expect(shape(state)).toEqual(shapeOf(found[2][1]))
       })
-
-      const body = pairs(c, 'body/0x21b8')[i]
-      if (body) {
-        it(`phrase peak: ${tag}`, () => {
-          const state = stateOf(body[0])
-          phrasePeak(state)
-          expect(shape(state)).toEqual(shapeOf(body[1]))
-        })
-      }
 
       it(`cadence: ${tag}`, () => {
         const state = stateOf(found[3][0])

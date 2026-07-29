@@ -101,7 +101,16 @@ export interface ProsodyState {
   counters: ProsodyCounters
 }
 
-/** `arr3` and `arr4` and `arr5`, by the names this stage uses them under. */
+/**
+ * The arrays this stage touches, by the names it uses them under.
+ *
+ * `MIDDLE` is `arr1`, which `hunk+0x1a8e` reads as the middle of each
+ * syllable's pitch contour — it walks `arr0`, `arr1`, `arr2`, `arr3` in turn
+ * for the peak, the middle, the low and the tail. Everything in the pitch
+ * loop's body builds `arr1` first and derives the other two from it, so it is
+ * the line the contour is hung on rather than one of its ends.
+ */
+const MIDDLE = 1
 const CADENCE = 3
 const DESCRIPTOR = 4
 const VOICING = 5
@@ -415,7 +424,7 @@ export function nextPhrase(state: ProsodyState, attrs: Attrs): boolean {
 }
 
 /**
- * hunk+0x21b8. The peak pitch of the phrase's first stressed syllable.
+ * hunk+0x21b8. The pitch the phrase's first stressed syllable starts on.
  *
  * This is **declination**: the value falls as the utterance goes on. It is
  * built from how many phrases have been spoken (`pass`) and how many
@@ -426,9 +435,9 @@ export function nextPhrase(state: ProsodyState, attrs: Attrs): boolean {
  * The result is clamped to 125..165, and returned because `hunk+0x220c` picks
  * it up out of `D0` rather than reading it back.
  */
-export function phrasePeak(state: ProsodyState): number {
+export function phrasePitch(state: ProsodyState): number {
   const { counters } = state
-  const arr1 = state.arr[1].subarray(state.arrAt)
+  const arr1 = state.arr[MIDDLE].subarray(state.arrAt)
 
   // 0x21bc: `divu.w`, so this is (boundaries + 4) / 3, truncated.
   const spread = Math.floor(((counters.boundaries + 4) & 0xffff) / 3)
@@ -447,4 +456,127 @@ export function phrasePeak(state: ProsodyState): number {
 
   arr1[counters.first] = peak & 0xff
   return peak
+}
+
+/** `ext.w` and `ext.l` — sign-extend the low byte, and the low word. */
+const sb = (v: number): number => ((v & 0xff) << 24) >> 24
+const sw = (v: number): number => ((v & 0xffff) << 16) >> 16
+
+/**
+ * hunk+0x220c. Give every stressed syllable of the phrase its middle pitch.
+ *
+ * {@link phrasePitch} has put a value on the first one; this walks the rest and
+ * steps down from it, landing on 110 at the last — 115 if the phrase ended in
+ * a question mark, which is the only effect a `?` has on this build's contour
+ * and the only place the question survives at all.
+ *
+ * Three passes, in one routine:
+ *
+ * 1. **0x224c** — share the whole fall out over the phrase's primary stresses,
+ *    but give the first and the last 19/128 of a step extra and take it back
+ *    evenly from the ones in between. So the pitch drops fastest at each end
+ *    of the phrase and coasts through the middle, which is what declination
+ *    actually looks like. Below four stresses there is no middle to take it
+ *    from and every step is equal.
+ * 2. **0x2274** — backwards, pulling each stressed syllable 51/128 of the way
+ *    towards a neighbour. Dead in 33.2: the neighbour is chosen by the low two
+ *    bits of `arr5`, {@link markVoiced} puts a 1 in every entry of it before
+ *    this runs, and 1 is the "leave it alone" case.
+ * 3. **0x22d6** — scale by how stressed each syllable is. A level above 8 is
+ *    pushed further above 110 and one below 8 pulled back towards it, in
+ *    proportion to how far above 110 it already sits, so the contrast between
+ *    a strong and a weak stress opens up at the top of the phrase and closes
+ *    at the bottom.
+ *
+ * `pitch` is {@link phrasePitch}'s result, which the device leaves in `D0`.
+ */
+export function syllablePitch(state: ProsodyState, pitch: number): void {
+  const { counters } = state
+  const arr1 = state.arr[MIDDLE].subarray(state.arrAt)
+  const arr4 = state.arr[DESCRIPTOR].subarray(state.arrAt)
+  const arr5 = state.arr[VOICING].subarray(state.arrAt)
+
+  // 0x2214: what the phrase falls to. `arr5` bits 2-3 are the punctuation
+  // {@link markPunctuation} recorded, and 8 is a question mark.
+  const floor = (arr5[counters.syllables - 1] & 0x0c) === 8 ? 0x73 : 0x6e
+
+  // 0x222c: `sub.b` then `divu.w`. `hunk+0x2160` has already checked the
+  // phrase has a primary stress in it, which is what stops the divide by zero.
+  const drop = Math.floor(((pitch - floor) & 0xff) / counters.stresses) & 0xffff
+
+  let big = drop
+  let small = drop
+  if (sw(counters.stresses) >= 4) {
+    // 0x2238: `mulu.w` writes a longword and `lsr.w` shifts only half of it,
+    // so this is the low word of the product, not the product.
+    const extra = ((drop * 0x13) & 0xffff) >> 7
+    big = (drop + extra) & 0xffff
+    small = (drop - Math.floor(((extra << 1) & 0xffff) / (counters.stresses - 3))) & 0xffff
+  }
+
+  // ------------------------------------------------------------------ 0x224c
+  // The device tests at the bottom, so this runs once even when the first
+  // stress is the last syllable — it reads one descriptor past the phrase.
+  // That byte belongs to a syllable not yet written, so it is zero and nothing
+  // comes of it; in the device it is the first byte of `arr5`.
+  let step = big & 0xff
+  let level = arr1[counters.first]
+  let i = (counters.first + 1) & 0xffff
+  for (;;) {
+    if (arr4[i] & SYLLABLE.PRIMARY) {
+      // 0x225e: the last primary stress takes the big step too.
+      if (i === counters.last) step = big & 0xff
+      level = (level - step) & 0xff
+      arr1[i] = level
+      step = small & 0xff
+    }
+    i = (i + 1) & 0xffff
+    if (sw(counters.syllables) <= sw(i)) break
+  }
+
+  // ------------------------------------------------------------------ 0x2274
+  /** The last stressed syllable this pass looked at — `D2`, and it moves down. */
+  let after = counters.last
+  for (let j = counters.last; ; j--) {
+    if (arr4[j] & SYLLABLE.PRIMARY) {
+      const towards = arr5[j] & 3
+      if (towards === 0) {
+        // 0x22b6: away from the syllable after it, so the two spread apart.
+        let d = sb(arr1[j] - arr1[after])
+        if (d >= 0) d = -d
+        arr1[j] = (arr1[j] + (((d * 0x33) >> 7) & 0xff)) & 0xff
+      } else if (towards !== 1) {
+        // 0x2290: towards the previous stressed syllable. Reaching the first
+        // one ends the pass outright rather than skipping it.
+        if (sw(j) <= sw(counters.first)) break
+        // 0x229a: `dbne`, so a run with no stress in it leaves the index at
+        // -1 and the device reads the byte before `arr1`. It cannot happen —
+        // `first` is a primary stress by construction and `j` is past it.
+        let k = (j - 1) & 0xffff
+        while (!(arr4[k] & SYLLABLE.PRIMARY)) {
+          k = (k - 1) & 0xffff
+          if (k === 0xffff) break
+        }
+        let d = sb(arr1[j] - arr1[k])
+        if (d < 0) d = -d
+        arr1[j] = (arr1[j] + (((d * 0x33) >> 7) & 0xff)) & 0xff
+      }
+      after = j
+    }
+    if (j === 0) break
+  }
+
+  // ------------------------------------------------------------------ 0x22d6
+  for (let k = counters.last; ; k--) {
+    const descriptor = arr4[k]
+    if (descriptor & SYLLABLE.PRIMARY) {
+      const weight = sw((descriptor & SYLLABLE.LEVEL) - 8)
+      // `mulu.w`, so a syllable that has already fallen below 110 wraps to a
+      // large positive here instead of going negative — the routine assumes
+      // the fall lands on the floor and never undershoots it.
+      const above = ((((arr1[k] - 0x6e) & 0xffff) * 0x0d) & 0xffff) >>> 7
+      arr1[k] = (arr1[k] + weight * sw(above)) & 0xff
+    }
+    if (k === 0) break
+  }
 }

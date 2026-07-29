@@ -130,3 +130,14 @@ WAH4N TUW4 THRIY4 FOH4R FAY4V SIH4KS SEH4VEHN EY4T NAY4N TEH4N
 DHIY4Z AA4R DHAH WER4DZ AH4V AH VEH4RIY LAO4NX SEH4NTEHNS
 WAH4N, TUW4, THRIY4, FOH4R, FAY4V, SIH4KS, SEH4VEHN, EY4T, NAY4N.
 EY4, BIY4, SIY4, DIY4, IY4, EH4F, JIY4, EY4CH, AY4, JEY4.
+
+# hunk+0x220c shares that fall out over the phrase's primary stresses. Four or
+# more of them splits the step two ways — a bigger one at each end, taken back
+# evenly from the middle — so both schemes need driving. A question falls to
+# 115 rather than 110, which is the only mark a `?` still leaves on this
+# build's contour. And hunk+0x2160 skips its whole body when the phrase has no
+# primary stress in it, which needs a phrase with no stress digit at all.
+DHAH KAET SAET
+IHZ DHIH4S AH KWEH4SCHAHN?
+WEH4R AA4R DHAH SEH4VEHN LAO4NX WER4DZ?
+WAH4N TUW4 THRIY4 FOH4R FAY4V?

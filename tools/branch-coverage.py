@@ -184,9 +184,32 @@ PROSODY = [
     (0x2152, '0x210a mark the last primary stress'),
 ]
 
+# hunk+0x2160's body. A few of these are totals rather than one arm of a
+# decision, because both arms of it converge on the same address; they are
+# named so, and the other arm is the difference.
+BODY = [
+    (0x218E, '0x2160 a phrase with a primary stress in it'),
+    (0x21AA, '0x2160 total, including the phrases that skip the body'),
+    (0x21F8, '0x21b8 clamped to the 125 floor'),
+    (0x2202, '0x21b8 clamped to the 165 ceiling'),
+    (0x2226, '0x220c a question falls to 115'),
+    (0x2232, '0x220c total, both step schemes'),
+    (0x2238, '0x220c four or more stresses, two step sizes'),
+    (0x2256, '0x220c total, syllables walked forwards'),
+    (0x2264, '0x220c the last stress takes the big step'),
+    (0x2266, '0x220c step a stressed syllable down'),
+    (0x227A, '0x220c total, syllables walked backwards'),
+    (0x2282, '0x220c a stressed syllable, backwards'),
+    (0x22B6, '0x220c pull it away from the next'),
+    (0x2296, '0x220c pull it towards the previous'),
+    (0x22D0, '0x220c leave it alone'),
+    (0x22D6, '0x220c total, and the early exit at the first stress'),
+    (0x22EC, '0x220c scale by the stress level'),
+]
+
 ROUTINES = {'durations': DURATIONS, 'frames': FRAMES, 'blend': BLEND,
             'contour': CONTOUR, 'pitch': PITCH, 'interpolate': INTERPOLATE,
-            'prosody': PROSODY}
+            'prosody': PROSODY, 'body': BODY}
 
 
 def run(device, phrase, opts, marks, steps, counts):
