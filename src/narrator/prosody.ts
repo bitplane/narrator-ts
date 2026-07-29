@@ -1047,3 +1047,164 @@ export function fillContours(state: ProsodyState): void {
   if (punctuation === 4) return
   arr2[at] = 0x6e
 }
+
+/**
+ * hunk+0x2864. Squeeze each stressed syllable's contour by the consonants
+ * around it — the last thing the pitch loop does.
+ *
+ * This is **consonantal F0 perturbation**, and it is the most linguistically
+ * literate thing in the device after {@link intrinsicPitch}. A consonant
+ * disturbs the pitch of the vowel next to it, and how much depends on whether
+ * it is voiced: a voiceless one perturbs far more, because the larynx has to
+ * stop and restart. Both ends of the syllable are treated separately.
+ *
+ * At the **onset** (0x28a0), only if the syllable begins with a consonant: the
+ * start of the contour is moved up towards the peak by 26/128 of the climb
+ * after a voiced consonant and 102/128 after a voiceless one — so a syllable
+ * beginning `p` or `t` has almost no room to rise and one beginning `m` or `b`
+ * keeps nearly all of it. A voiceless onset also lifts the whole contour by
+ * 26/128 of its height first, which is the well-attested raising of F0 after a
+ * voiceless stop.
+ *
+ * At the **end** (0x291a), by what the syllable runs into. The device walks
+ * forward past the stress digit to the first phoneme that settles it:
+ *
+ * | | |
+ * |---|---|
+ * | 26/128 | a vowel or the glottal stop — the fall carries on into it |
+ * | 86/128 | a voiceless phoneme first — most of the fall is eaten |
+ * | 64/128 | a pause follows, or the next syllable is stressed too |
+ *
+ * Voiced consonants in between are stepped over, since they do not interrupt
+ * the pitch. And a phrase whose last syllable is stressed is left alone, there
+ * being nothing after it to run into.
+ *
+ * Each adjustment moves the endpoint and shrinks the distance by the same
+ * amount, so the peak never moves and the three stay consistent.
+ */
+export function coarticulatePitch(state: ProsodyState, attrs: Attrs): void {
+  const { counters, phonemes, stress } = state
+  const arr0 = state.arr[ONSET].subarray(state.arrAt)
+  const arr1 = state.arr[PEAK].subarray(state.arrAt)
+  const arr2 = state.arr[END].subarray(state.arrAt)
+  const arr4 = state.arr[DESCRIPTOR].subarray(state.arrAt)
+  const arr6 = state.arr[CLIMB].subarray(state.arrAt)
+  const arr7 = state.arr[DROP].subarray(state.arrAt)
+
+  /** Bit 1 of the attributes, and bit 9 — a consonant, and voiced. */
+  const CONSONANT = 1 << 1
+  const VOICED = 1 << 9
+  const VOWEL = 1 << 0
+  /** Phoneme 47, the glottal stop. */
+  const GLOTTAL = 0x2f
+
+  // The three cursors, which walk backwards together one syllable at a time.
+  let p = state.atPhoneme - 1
+  let s = state.atStress - 1
+
+  for (let i = counters.syllables - 1; i >= 0; i--) {
+    // 0x287e: back to the phoneme the spreader marked as this syllable's
+    // start. `tst.b -(A2)` and `bpl`, so it is looking for bit 7.
+    do {
+      p--
+      s--
+    } while (!(stress[s] & STRESS.MARK))
+
+    if (!(arr4[i] & SYLLABLE.PRIMARY)) continue
+
+    // ---------------------------------------------------------------- 0x28a0
+    const onset = attrs[phonemes[p]] ?? 0
+    if (onset & CONSONANT) {
+      let by = 0x1a
+      if (!(onset & VOICED)) {
+        // 0x28b8: a voiceless consonant lifts the whole syllable first, peak,
+        // climb and drop alike, so its shape is kept as it rises.
+        const lift = round7(muls(arr1[i] - 0x6e, 0x1a))
+        arr1[i] = (arr1[i] + lift) & 0xff
+        arr7[i] = (arr7[i] + lift) & 0xff
+        arr6[i] = (arr6[i] + lift) & 0xff
+        by = 0x66
+      }
+      const d = round7(muls(sb(arr6[i]), by))
+      arr0[i] = (arr0[i] + d) & 0xff
+      arr6[i] = (arr6[i] - d) & 0xff
+    }
+
+    // ---------------------------------------------------------------- 0x291a
+    let by: number
+    if (arr4[i] & SYLLABLE.PAUSE || arr4[i + 1] & SYLLABLE.PRIMARY) {
+      // 0x295c: and the phrase's last syllable has nothing to run into.
+      if (i === counters.syllables - 1) continue
+      by = 0x40
+    } else {
+      // 0x292a: forward past the syllable's own stress digit first.
+      let k = 0
+      while ((stress[s + k++] & 0x0f) === 0);
+
+      // 0x293c: then on to the first phoneme that settles it, stepping over
+      // voiced consonants on the way.
+      for (;;) {
+        const next = phonemes[p + k]
+        if (next === GLOTTAL) {
+          by = 0x1a
+          break
+        }
+        const a = attrs[next] ?? 0
+        if (a & VOWEL) {
+          by = 0x1a
+          break
+        }
+        if (!(a & VOICED)) {
+          by = 0x56
+          break
+        }
+        k++
+      }
+    }
+
+    // 0x2974
+    const d = round7(muls(sb(arr7[i]), by))
+    arr2[i] = (arr2[i] + d) & 0xff
+    arr7[i] = (arr7[i] - d) & 0xff
+  }
+}
+
+/**
+ * hunk+0x2160. One phrase's worth of pitch, and then move the cursors past it.
+ *
+ * The driver at `hunk+0x832` alternates {@link nextPhrase} with this until
+ * there is no phrase left, so between them they are the whole of the tune.
+ *
+ * Two things are skipped rather than guarded inside the routines themselves.
+ * `mode` — the monotone robot voice — skips all seven, since
+ * {@link assignPitch} is going to write one flat period over everything
+ * anyway; and a phrase with no primary stress in it skips the first four,
+ * which are the ones that need somewhere to hang a contour, leaving the last
+ * three to fill it in flat.
+ *
+ * The seven pass registers between them and the device never reloads what one
+ * of them clobbers, so they have to run in this order. `phrasePitch` is the
+ * only one whose result is threaded by hand, in `D0`.
+ *
+ * Ends by adding the syllable count to all eight array cursors at once, which
+ * is what makes the next phrase write where this one stopped.
+ */
+export function pitchLoopBody(state: ProsodyState, attrs: Attrs, mode: number): void {
+  const { counters } = state
+
+  // 0x2184
+  if (mode === 0) {
+    // 0x218a: nothing to hang a contour on.
+    if (counters.stresses !== 0) {
+      syllablePitch(state, phrasePitch(state))
+      syllableRange(state)
+      linkSyllables(state)
+    }
+    boundaryFall(state)
+    fillContours(state)
+    coarticulatePitch(state, attrs)
+  }
+
+  // 0x21aa: `add.l D4,(A0)+` eight times.
+  state.arrAt += counters.syllables
+}

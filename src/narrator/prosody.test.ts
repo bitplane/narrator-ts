@@ -4,10 +4,12 @@ import { describe, expect, it } from 'vitest'
 
 import {
   boundaryFall,
+  coarticulatePitch,
   fillContours,
   markBoundaries,
   nextPhrase,
   phrasePitch,
+  pitchLoopBody,
   markCadence,
   markPunctuation,
   markVoiced,
@@ -164,6 +166,7 @@ describe.skipIf(!ready)('the prosody pass, against the device', () => {
     const links = pairs(c, 'body/0x23ce')
     const falls = pairs(c, 'body/0x25f8')
     const fills = pairs(c, 'body/0x2642')
+    const squeezes = pairs(c, 'body/0x2864')
     for (const [i, [before, after]] of peaks.entries()) {
       it(`phrase pitch: ${base} stressed phrase ${i + 1}`, () => {
         const state = stateOf(before)
@@ -213,6 +216,14 @@ describe.skipIf(!ready)('the prosody pass, against the device', () => {
         fillContours(state)
         expect(shape(state)).toEqual(shapeOf(fill[1]))
       })
+
+      const squeeze = squeezes[i]
+      if (!squeeze) continue
+      it(`coarticulate pitch: ${base} stressed phrase ${i + 1}`, () => {
+        const state = stateOf(squeeze[0])
+        coarticulatePitch(state, attrs!)
+        expect(shape(state)).toEqual(shapeOf(squeeze[1]))
+      })
     }
 
     for (const [i, [before, after]] of loopPairs(c).entries()) {
@@ -220,6 +231,17 @@ describe.skipIf(!ready)('the prosody pass, against the device', () => {
         const state = stateOf(before)
         nextPhrase(state, attrs!)
         expect(shape(state, true)).toEqual(shapeOf(after, true))
+      })
+    }
+
+    // hunk+0x2160 end to end, cursor advance and all — the seven pass
+    // registers between them, so running them separately proves less than
+    // running them in a row does.
+    for (const [i, [before, after]] of pairs(c, 'loop-body').entries()) {
+      it(`whole loop body: ${base} phrase ${i + 1}`, () => {
+        const state = stateOf(before)
+        pitchLoopBody(state, attrs!, word(before, 0x30))
+        expect(shape(state)).toEqual(shapeOf(after))
       })
     }
 

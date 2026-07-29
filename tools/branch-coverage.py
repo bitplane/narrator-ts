@@ -188,6 +188,7 @@ PROSODY = [
 # decision, because both arms of it converge on the same address; they are
 # named so, and the other arm is the difference.
 BODY = [
+    (0x218A, '0x2160 total, the phrases mode does not skip'),
     (0x218E, '0x2160 a phrase with a primary stress in it'),
     (0x21AA, '0x2160 total, including the phrases that skip the body'),
     (0x21F8, '0x21b8 clamped to the 125 floor'),
@@ -247,6 +248,17 @@ BODY = [
     (0x2824, '0x2642 end on 110'),
     (0x282C, '0x2642 a question ends on the highest peak'),
     (0x285C, '0x2642   and starts where the syllable before it ended'),
+    (0x2886, '0x2864 total, one per syllable'),
+    (0x2890, '0x2864 a stressed syllable'),
+    (0x28AE, '0x2864   a voiced consonant at the onset'),
+    (0x28B8, '0x2864   a voiceless one'),
+    (0x2914, '0x2864   total, including a vowel onset'),
+    (0x295C, '0x2864 a pause or another stress follows'),
+    (0x2964, '0x2864   and it is not the last syllable'),
+    (0x292A, '0x2864 walk on to what the syllable runs into'),
+    (0x2970, '0x2864   a vowel or the glottal stop'),
+    (0x296A, '0x2864   a voiceless phoneme'),
+    (0x2958, '0x2864   step over a voiced consonant'),
 ]
 
 ROUTINES = {'durations': DURATIONS, 'frames': FRAMES, 'blend': BLEND,
