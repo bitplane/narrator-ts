@@ -156,3 +156,11 @@ SIY4 DHAH KAET RAH4N
 SIY4 DHAH KAET AHN RAH4N
 SIY4 DHAH KAET AHN DHAH RAH4N
 SIY4 DHAH KAET AHN DHAH GRAAS RAH4N.
+
+# hunk+0x2642 moves two stressed syllables half way towards each other when
+# the earlier one ends *below* where the later one starts. Declination alone
+# never does that -- the pitch only falls -- so it takes the stress-level
+# scaling at hunk+0x22d6 lifting a later syllable back above an earlier one,
+# which needs a low stress digit followed a few syllables later by a high one.
+AH4 DHAH BIY9 DHAH SIY4 DHAH DIY9 DHAH IY9.
+EY4 DHAH BIY9 DHAH SIY9 DHAH DIY9 DHAH IY9 DHAH EH9F.

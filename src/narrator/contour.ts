@@ -145,15 +145,26 @@ const MONOTONE_PITCH = 0x6e
 const FRAME = 8
 const PITCH_BYTE = 7
 
-/** The four per-syllable arrays `hunk+0x2160` fills, one entry per vowel. */
+/**
+ * The four per-syllable arrays `hunk+0x2160` fills, one entry per vowel.
+ *
+ * `arr0`, `arr1` and `arr2` are the three points of one syllable's pitch, in
+ * the order the device reads them out — where it starts, how high it gets,
+ * where it ends. `peak` sits between the other two in memory, which is what
+ * makes the layout confusing; it is nonetheless the highest of the three, and
+ * `hunk+0x2642` builds the other two by subtracting distances from it.
+ *
+ * They are frequencies, so a larger number is a higher note. The frame array
+ * holds periods, and every value here is divided into a constant on its way in.
+ */
 export interface PitchArrays {
-  /** The pitch at the peak. */
+  /** `arr0`: the pitch the syllable starts on. */
+  onset: Uint8Array
+  /** `arr1`: the pitch it reaches. */
   peak: Uint8Array
-  /** The pitch partway down. */
-  middle: Uint8Array
-  /** The pitch where the fall lands. */
-  low: Uint8Array
-  /** Bits 4-6 are a rise added back after the fall; zero means no third leg. */
+  /** `arr2`: the pitch it ends on — above the peak for a question. */
+  end: Uint8Array
+  /** `arr3`: bits 4-6 are a rise added after the fall; zero means no third leg. */
   tail: Uint8Array
 }
 
@@ -175,11 +186,10 @@ export interface PitchOptions {
  * Every value is `1221000 / pitch / v`, so a larger `v` in the arrays is a
  * *lower* note: they hold frequencies and the frame holds a period.
  *
- * Per syllable it pins up to four points — the peak on the syllable's first
- * frame, the low on the last frame before the fall, the middle at a position
+ * Per syllable it pins up to four points — the onset on the syllable's first
+ * frame, the end on the last frame before the fall, the peak at a position
  * weighted by how far the pitch has to travel between them, and, when the
- * fourth array is non-zero, a rise back up at the end of the voiced run. That
- * last one is the question intonation.
+ * fourth array is non-zero, a rise back up at the end of the voiced run.
  */
 export function assignPitch(
   state: ContourState & { flags: Uint8Array },
@@ -209,9 +219,9 @@ export function assignPitch(
   for (;;) {
     // -------------------------------------------------------------- 0x1ad2
     if (flags[i] === TERMINATOR) {
-      // 0x1ada: `(-1,A3,0x100)` is the *previous* syllable's low, and it goes
-      // on the frame before the cursor — the utterance's last pitch.
-      frames[at - 1] = period(arrays.low[v - 1])
+      // 0x1ada: `(-1,A3,0x100)` is where the *previous* syllable ended, and
+      // it goes on the frame before the cursor — the utterance's last pitch.
+      frames[at - 1] = period(arrays.end[v - 1])
       return
     }
     const duration = flags[i] & 0x3f
@@ -223,9 +233,9 @@ export function assignPitch(
     }
 
     // -------------------------------------------------------------- 0x1b00
-    const hi = arrays.peak[v]
-    const mid = arrays.middle[v]
-    const lo = arrays.low[v]
+    const hi = arrays.onset[v]
+    const mid = arrays.peak[v]
+    const lo = arrays.end[v]
     // 0x1b2a: only bits 4-6, halved. Zero here means the contour stops at the
     // fall instead of rising again.
     const rise = (arrays.tail[v] & 0x70) >> 1

@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   boundaryFall,
+  fillContours,
   markBoundaries,
   nextPhrase,
   phrasePitch,
@@ -162,6 +163,7 @@ describe.skipIf(!ready)('the prosody pass, against the device', () => {
     const ranges = pairs(c, 'body/0x230c')
     const links = pairs(c, 'body/0x23ce')
     const falls = pairs(c, 'body/0x25f8')
+    const fills = pairs(c, 'body/0x2642')
     for (const [i, [before, after]] of peaks.entries()) {
       it(`phrase pitch: ${base} stressed phrase ${i + 1}`, () => {
         const state = stateOf(before)
@@ -202,6 +204,14 @@ describe.skipIf(!ready)('the prosody pass, against the device', () => {
         const state = stateOf(fall[0])
         boundaryFall(state)
         expect(shape(state)).toEqual(shapeOf(fall[1]))
+      })
+
+      const fill = fills[i]
+      if (!fill) continue
+      it(`fill contours: ${base} stressed phrase ${i + 1}`, () => {
+        const state = stateOf(fill[0])
+        fillContours(state)
+        expect(shape(state)).toEqual(shapeOf(fill[1]))
       })
     }
 

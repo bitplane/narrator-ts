@@ -103,9 +103,9 @@ describe.skipIf(!ready)('the contour marker, against the device', () => {
           flags: pad(q[0].flags),
         },
         {
-          peak: Uint8Array.from(q[0].params[0]),
-          middle: Uint8Array.from(q[0].params[1]),
-          low: Uint8Array.from(q[0].params[2]),
+          onset: Uint8Array.from(q[0].params[0]),
+          peak: Uint8Array.from(q[0].params[1]),
+          end: Uint8Array.from(q[0].params[2]),
           tail: Uint8Array.from(q[0].params[3]),
         },
         frames,

@@ -104,20 +104,30 @@ export interface ProsodyState {
 /**
  * The arrays this stage touches, by the names it uses them under.
  *
- * `MIDDLE` is `arr1`, which `hunk+0x1a8e` reads as the middle of each
- * syllable's pitch contour — it walks `arr0`, `arr1`, `arr2`, `arr3` in turn
- * for the peak, the middle, the low and the tail. Everything in the pitch
- * loop's body builds `arr1` first and derives the other two from it, so it is
- * the line the contour is hung on rather than one of its ends.
+ * A syllable's pitch is three numbers: where it starts, how high it gets, and
+ * where it ends. `hunk+0x1a8e` reads them out of `arr0`, `arr1` and `arr2` in
+ * that order and pins the frames accordingly, so `arr1` is the *peak* despite
+ * sitting between the other two in memory. All three are frequencies, and a
+ * larger one is a higher note.
+ *
+ * The whole pitch loop's body builds `arr1` first and holds the other two as
+ * distances below it — `arr6` how far the syllable climbs from its start,
+ * `arr7` how far it drops to its end. `hunk+0x2642` finally subtracts them.
+ * A negative distance is therefore a syllable that goes *up*, which is how a
+ * question is spoken.
  */
-const MIDDLE = 1
+/** `arr0`: the pitch the syllable starts on. */
+const ONSET = 0
+const PEAK = 1
+/** `arr2`: the pitch it ends on. */
+const END = 2
 const CADENCE = 3
 const DESCRIPTOR = 4
 const VOICING = 5
-/** `arr6`: how far above its middle a syllable's peak goes. */
-const RISE = 6
-/** `arr7`: how far below it the low goes. */
-const FALL = 7
+/** `arr6`: how far the syllable climbs from its onset to its peak. */
+const CLIMB = 6
+/** `arr7`: how far it drops from its peak to its end. */
+const DROP = 7
 
 /**
  * hunk+0x1f02. Walk the next phrase and write one descriptor per syllable.
@@ -442,7 +452,7 @@ export function nextPhrase(state: ProsodyState, attrs: Attrs): boolean {
  */
 export function phrasePitch(state: ProsodyState): number {
   const { counters } = state
-  const arr1 = state.arr[MIDDLE].subarray(state.arrAt)
+  const arr1 = state.arr[PEAK].subarray(state.arrAt)
 
   // 0x21bc: `divu.w`, so this is (boundaries + 4) / 3, truncated.
   const spread = Math.floor(((counters.boundaries + 4) & 0xffff) / 3)
@@ -482,7 +492,7 @@ const muls = (a: number, b: number): number => sw(a) * sw(b)
 const round7 = (v: number): number => sw(sw(v) + (v < 0 ? -0x40 : 0x40)) >> 7
 
 /**
- * hunk+0x220c. Give every stressed syllable of the phrase its middle pitch.
+ * hunk+0x220c. Give every stressed syllable of the phrase its peak pitch.
  *
  * {@link phrasePitch} has put a value on the first one; this walks the rest and
  * steps down from it, landing on 110 at the last — 115 if the phrase ended in
@@ -511,7 +521,7 @@ const round7 = (v: number): number => sw(sw(v) + (v < 0 ? -0x40 : 0x40)) >> 7
  */
 export function syllablePitch(state: ProsodyState, pitch: number): void {
   const { counters } = state
-  const arr1 = state.arr[MIDDLE].subarray(state.arrAt)
+  const arr1 = state.arr[PEAK].subarray(state.arrAt)
   const arr4 = state.arr[DESCRIPTOR].subarray(state.arrAt)
   const arr5 = state.arr[VOICING].subarray(state.arrAt)
 
@@ -601,37 +611,37 @@ export function syllablePitch(state: ProsodyState, pitch: number): void {
 }
 
 /**
- * hunk+0x230c. How far each stressed syllable's contour swings above and below
- * the middle {@link syllablePitch} gave it.
+ * hunk+0x230c. How far each stressed syllable climbs to the peak
+ * {@link syllablePitch} gave it, and how far it drops away again.
  *
- * `arr6` is the rise and `arr7` the fall, and `hunk+0x2864` finally adds them
- * to `arr0` and `arr2` — the peak and the low that `hunk+0x1a8e` reads. Both
- * are proportional to how far the syllable's middle sits above 110, so a
- * syllable that has already fallen to the floor of the phrase gets no contour
- * at all and the utterance flattens out as it ends.
+ * `arr6` is the climb and `arr7` the drop, both as distances *below* the peak,
+ * and `hunk+0x2642` finally subtracts them to get the syllable's onset and its
+ * end. Both are proportional to how far the peak sits above 110, so a syllable
+ * that has already fallen to the floor of the phrase gets no contour at all
+ * and the utterance flattens out as it ends.
  *
- * The shape of the swing is set by the low nibble of the cadence byte, read as
- * a *signed* nibble: the rise is `(26·cadence + 128)/128` of the distance and
- * the fall is `(cadence − 1)·26/128` of it. A cadence of 4 — what
- * {@link markCadence} puts on the last primary stress of a phrase — gives a
- * rise nearly twice the default and a fall three times it, which is the
- * sentence-final drop.
+ * The shape is set by the low nibble of the cadence byte, read as a *signed*
+ * nibble: the climb is `(26·cadence + 128)/128` of that distance and the drop
+ * is `(cadence − 1)·26/128` of it. A cadence of 4 — what {@link markCadence}
+ * puts on the last primary stress of a phrase — makes the climb nearly twice
+ * the default and the drop three times it, which is the sentence-final fall.
  *
- * A negative nibble would invert the rise, and none is reachable: the only
+ * A negative nibble would invert the climb, and none is reachable: the only
  * values anything puts in that nibble are 0 and the 4 {@link markCadence}
  * writes, the 2 and the 0x0e of {@link markBoundaries} both coming from flag
  * bits nothing in 33.2 sets.
  *
- * The fall is clipped at zero rather than allowed to go negative, so it can
- * flatten but never turn into a second rise.
+ * The drop is clipped at zero rather than allowed to go negative here, so at
+ * this stage a syllable can end level with its peak but never above it. Only
+ * {@link linkSyllables} lifts it above, and only for a question.
  */
 export function syllableRange(state: ProsodyState): void {
   const { counters } = state
-  const arr1 = state.arr[MIDDLE].subarray(state.arrAt)
+  const arr1 = state.arr[PEAK].subarray(state.arrAt)
   const arr3 = state.arr[CADENCE].subarray(state.arrAt)
   const arr4 = state.arr[DESCRIPTOR].subarray(state.arrAt)
-  const arr6 = state.arr[RISE].subarray(state.arrAt)
-  const arr7 = state.arr[FALL].subarray(state.arrAt)
+  const arr6 = state.arr[CLIMB].subarray(state.arrAt)
+  const arr7 = state.arr[DROP].subarray(state.arrAt)
 
   for (let i = counters.last; ; i--) {
     if (arr4[i] & SYLLABLE.PRIMARY) {
@@ -643,13 +653,13 @@ export function syllableRange(state: ProsodyState): void {
 
       // 0x2346: two shifts of seven with a `muls.w` between them, so the
       // 51/128 is applied to a value already divided by 128.
-      let rise = muls(cadence, 0x1a) + 0x80
-      rise = muls(rise, above) >>> 7
-      arr6[i] = (muls(rise, 0x33) >>> 7) & 0xff
+      let climb = muls(cadence, 0x1a) + 0x80
+      climb = muls(climb, above) >>> 7
+      arr6[i] = (muls(climb, 0x33) >>> 7) & 0xff
 
       // 0x235e: `neg.b` and `bpl`, so the clip is on the byte.
-      const fall = (-(muls(muls(cadence - 1, above), 0x1a) >>> 7)) & 0xff
-      arr7[i] = fall & 0x80 ? 0 : fall
+      const drop = (-(muls(muls(cadence - 1, above), 0x1a) >>> 7)) & 0xff
+      arr7[i] = drop & 0x80 ? 0 : drop
 
       // 0x2374: a further −38/128 on both, for a syllable carrying the marker
       // `hunk+0x1fd8` moves onto a primary stress and no cadence of its own.
@@ -663,9 +673,9 @@ export function syllableRange(state: ProsodyState): void {
     if (i === 0) break
   }
 
-  // 0x23c0: the phrase's first stressed syllable rises by the whole distance
-  // rather than a fraction of it, so it is the one that reaches the peak the
-  // declination picked.
+  // 0x23c0: the phrase's first stressed syllable climbs the whole distance
+  // rather than a fraction of it, so it is the one that starts down at 110 and
+  // reaches the peak the declination picked.
   arr6[counters.first] = (arr1[counters.first] - 0x6e) & 0xff
 }
 
@@ -676,37 +686,36 @@ export function syllableRange(state: ProsodyState): void {
  * Two halves. The first walks the primary stresses backwards in pairs and
  * adjusts both by how far apart they are:
  *
- * - **Back to back** (0x23f8) — both swings shrink to 77/128, the earlier
- *   middle drops 26/128 of its height and the later one rises by the same,
- *   and then whatever gap is left between the earlier syllable's low and the
- *   later one's is closed outright by deepening one or raising the other.
- *   Two stresses in a row have no room for two full contours, so they are
- *   flattened and butted together.
- * - **Anything further apart** (0x2496) — both swings *grow*, by 19, 32 or 38
- *   parts in 128 as the gap is one, two or more syllables, and the middles
+ * - **Back to back** (0x23f8) — both contours shrink to 77/128, the earlier
+ *   peak drops 26/128 of its height and the later one rises by the same, and
+ *   then whatever gap is left between where the earlier syllable ends and the
+ *   later one starts is closed outright. Two stresses in a row have no room
+ *   for two full contours, so they are flattened and butted together.
+ * - **Anything further apart** (0x2496) — both contours *grow*, by 19, 32 or
+ *   38 parts in 128 as the gap is one, two or more syllables, and the peaks
  *   move apart rather than together. With room between them each stress gets
  *   its own excursion, and the more room the bigger.
  *
  * The second half (0x2574) is the punctuation, on any stressed syllable a
  * pause follows:
  *
- * - **A full stop** puts the low a flat 75 below the middle.
- * - **A question** raises the peak by 102/128 of the fall and then sets the
- *   fall from the *highest* middle anywhere earlier in the phrase, times
- *   154/128. That is bigger than the syllable's own middle, so the result
- *   goes negative and the low ends up above the middle rather than below it.
+ * - **A full stop** ends the syllable a flat 75 below its peak.
+ * - **A question** shortens the climb by 102/128 of the drop and then rebuilds
+ *   the drop from the *highest* peak anywhere earlier in the phrase, times
+ *   154/128. That is larger than this syllable's own peak, so the drop comes
+ *   out negative and the syllable ends *above* where it peaked.
  *
  * So 33.2 does speak a question differently — here, in arithmetic, rather than
  * through the rise flag in {@link markCadence} that no input can select.
  */
 export function linkSyllables(state: ProsodyState): void {
   const { counters } = state
-  const arr1 = state.arr[MIDDLE].subarray(state.arrAt)
+  const arr1 = state.arr[PEAK].subarray(state.arrAt)
   const arr3 = state.arr[CADENCE].subarray(state.arrAt)
   const arr4 = state.arr[DESCRIPTOR].subarray(state.arrAt)
   const arr5 = state.arr[VOICING].subarray(state.arrAt)
-  const arr6 = state.arr[RISE].subarray(state.arrAt)
-  const arr7 = state.arr[FALL].subarray(state.arrAt)
+  const arr6 = state.arr[CLIMB].subarray(state.arrAt)
+  const arr7 = state.arr[DROP].subarray(state.arrAt)
 
   // ------------------------------------------------------------------ 0x23e0
   /** `D1`: the stressed syllable above this one, which only it moves on. */
@@ -759,14 +768,14 @@ export function linkSyllables(state: ProsodyState): void {
         let d1 = round7(muls(sb(arr7[i]), 0x66))
         arr6[i] = (arr6[i] + d1) & 0xff
 
-        // 0x25ca: the highest middle from here back to the start of the
+        // 0x25ca: the highest peak from here back to the start of the
         // phrase — `cmp.w` with `bgt`, so this keeps the larger.
         //
         // `D1` is not cleared first: only its low byte is replaced each time
         // round, and its high byte is left over from the rounding above. When
         // that rounding came out negative the high byte is 0xff, every
         // comparison is against a negative word, and the highest stays this
-        // syllable's own middle however low it is.
+        // syllable's own peak however low it is.
         let d7 = arr1[i]
         for (let k = i - 1; k >= 0; k--) {
           d1 = (d1 & 0xff00) | arr1[k]
@@ -774,10 +783,10 @@ export function linkSyllables(state: ProsodyState): void {
         }
 
         // 0x25e2: 154/128 of it, which is more than this syllable's own
-        // middle — so the fall comes out negative and rises instead.
+        // peak — so the drop comes out negative and the syllable rises.
         arr7[i] = (arr1[i] - ((((d7 & 0xffff) * 0x9a) & 0xffff) >> 7)) & 0xff
       } else if (punctuation === 4) {
-        // 0x259c: a full stop drops a flat 75.
+        // 0x259c: a full stop ends a flat 75 below the peak.
         arr7[i] = (arr1[i] - 0x4b) & 0xff
       }
     }
@@ -786,15 +795,15 @@ export function linkSyllables(state: ProsodyState): void {
 }
 
 /**
- * hunk+0x25f8. Deepen the fall at a phrase boundary.
+ * hunk+0x25f8. Deepen the drop at a phrase boundary.
  *
  * The high nibble of the cadence byte is what {@link markCadence} and
  * {@link markBoundaries} put there: `0xb0` on the phrase's last syllable and
- * `0x90` on the one before a dash. Either adds 38/128 to that syllable's fall,
- * so the drop at the end of a phrase is half again as deep as one in the
- * middle of it. That, and not the cadence flag, is what a comma sounds like.
+ * `0x90` on the one before a dash. Either adds 38/128 to that syllable's drop,
+ * so the pitch falls half again as far at the end of a phrase as it does
+ * inside one. That, and not the cadence flag, is what a comma sounds like.
  *
- * The other arm takes 102/128 *off* the fall instead, and is unreachable: it
+ * The other arm takes 102/128 *off* the drop instead, and is unreachable: it
  * wants the high nibble non-zero with bit 7 clear, and the only two values
  * that can put anything in that nibble both set bit 7. Its two possible
  * sources — the `2` and the `0x0e` of {@link markBoundaries} — need flag bits
@@ -802,7 +811,7 @@ export function linkSyllables(state: ProsodyState): void {
  */
 export function boundaryFall(state: ProsodyState): void {
   const arr3 = state.arr[CADENCE].subarray(state.arrAt)
-  const arr7 = state.arr[FALL].subarray(state.arrAt)
+  const arr7 = state.arr[DROP].subarray(state.arrAt)
 
   // `D4`, which hunk+0x2160 loaded from A5+0x8c at the top and none of the
   // seven reloads — so it is scanPhrase's count, not markBoundaries'.
@@ -812,4 +821,229 @@ export function boundaryFall(state: ProsodyState): void {
     const by = mark & 0x80 ? 0x26 : -0x66
     arr7[i] = (arr7[i] + round7(muls(sb(arr7[i]), by))) & 0xff
   }
+}
+
+/**
+ * The step table at `hunk+0x29ca`, in 128ths, and the three windows into it.
+ *
+ * A run of unstressed syllables between two stresses glides from where the
+ * first one ended down towards where the second one starts, and this is how
+ * much of the step each syllable of the run takes. The factors *compound* —
+ * each is applied to what the last one left — so a long run's glide is steep
+ * at first and then flattens out.
+ *
+ * Whatever the run's length, only the first three syllables of it glide. The
+ * device picks a shorter window for a shorter run rather than stretching one
+ * window across it, so a single unstressed syllable takes the whole step in
+ * one go and everything past the third sits flat.
+ */
+const GLIDE = [0x3a, 0x64, 0x49, 0x4d, 0x56, 0x80]
+const GLIDE_WINDOW = [[5, 6], [3, 5], [0, 3]] as const
+
+/**
+ * hunk+0x29a2. Walk a run of syllables, each starting where the last one
+ * ended and dropping a little further.
+ *
+ * `arr0` gets the previous syllable's end, so the pitch is continuous across
+ * the run; `arr2` gets that minus the step; and `arr1` sits 5 above `arr2`, so
+ * every one of these syllables has the same shallow contour rather than a flat
+ * line. Returns the index it stopped on.
+ */
+function glide(
+  arr0: Uint8Array,
+  arr1: Uint8Array,
+  arr2: Uint8Array,
+  at: number,
+  step: number,
+  factors: readonly number[],
+): number {
+  for (const factor of factors) {
+    arr0[at + 1] = arr2[at]
+    // 0x29aa: `mulu.w` then `lsr.w #7`, so the step is scaled before it is
+    // used and the next syllable inherits the smaller one.
+    step = (((step & 0xffff) * factor) & 0xffff) >>> 7
+    at++
+    arr2[at] = (arr0[at] - step) & 0xff
+    arr1[at] = (arr2[at] + 5) & 0xff
+  }
+  return at
+}
+
+/**
+ * hunk+0x2642. Turn the peaks and their two distances into three real pitches
+ * per syllable, and fill in every syllable that has not got one.
+ *
+ * Up to here only the primary stresses have been touched, and each is held as
+ * a peak with a climb and a drop hanging off it. This is where that becomes
+ * `arr0`, `arr1`, `arr2` — an onset, a peak and an end — for *every* syllable
+ * of the phrase, which is what `hunk+0x1a8e` needs.
+ *
+ * Four passes:
+ *
+ * 1. **0x265e** — subtract: onset is peak minus climb, end is peak minus drop.
+ * 2. **0x2680** — take the stresses in pairs and fill the gap between them.
+ *    If the earlier syllable ends below where the later one starts, the two
+ *    are moved half the distance towards each other first, so the line never
+ *    has to climb backwards. Then the run between them glides down through
+ *    {@link GLIDE}.
+ * 3. **0x277e** — everything *before* the phrase's first stress sits flat at
+ *    110, with its peak lifted by twice its own stress level. An unstressed
+ *    lead-in is spoken at the bottom of the range.
+ * 4. **0x27a8** — everything *after* the last stress. Here the step is not
+ *    from a table: it is the whole remaining distance down to 110, divided
+ *    evenly by however many syllables are left, so the tail always lands on
+ *    the floor whatever its length. A full stop aims 35 lower still and ends
+ *    on 75; a comma or nothing ends on 110; a question does something else
+ *    entirely and ends on 154/128 of the phrase's highest peak.
+ */
+export function fillContours(state: ProsodyState): void {
+  const { counters } = state
+  const arr0 = state.arr[ONSET].subarray(state.arrAt)
+  const arr1 = state.arr[PEAK].subarray(state.arrAt)
+  const arr2 = state.arr[END].subarray(state.arrAt)
+  const arr3 = state.arr[CADENCE].subarray(state.arrAt)
+  const arr4 = state.arr[DESCRIPTOR].subarray(state.arrAt)
+  const arr5 = state.arr[VOICING].subarray(state.arrAt)
+  const arr6 = state.arr[CLIMB].subarray(state.arrAt)
+  const arr7 = state.arr[DROP].subarray(state.arrAt)
+
+  // ------------------------------------------------------------------ 0x265e
+  for (let i = counters.last; ; i--) {
+    if (arr4[i] & SYLLABLE.PRIMARY) {
+      arr0[i] = (arr1[i] - arr6[i]) & 0xff
+      arr2[i] = (arr1[i] - arr7[i]) & 0xff
+    }
+    if (i === 0) break
+  }
+
+  // ------------------------------------------------------------------ 0x2680
+  let scan = counters.first
+  let remaining = counters.stresses
+  for (;;) {
+    let at = scan
+    let step = 0
+    // 0x268a: one gap fewer than there are stresses.
+    remaining = sw(remaining - 1)
+    if (remaining <= 0) break
+
+    // 0x2694: forward to the next primary stress.
+    do {
+      scan = (scan + 1) & 0xffff
+    } while (!(arr4[scan] & SYLLABLE.PRIMARY))
+
+    // 0x269e: syllables strictly between the two. None, and there is nothing
+    // to fill in.
+    const between = sw(scan - at - 1)
+    if (between === 0) continue
+
+    // 0x26a6: does the earlier one end below where the later one starts?
+    step = (arr2[at] - arr0[scan]) & 0xff
+    if (sb(step) < 0) {
+      // 0x26b0: move both half way towards the other, adjusting the climb and
+      // the drop to match so the peaks stay where they are.
+      const half = ((-step) & 0xff) >>> 1
+      arr0[scan] = (arr0[scan] - half) & 0xff
+      arr6[scan] = (arr6[scan] + half) & 0xff
+      arr2[at] = (arr2[at] + half) & 0xff
+      arr7[at] = (arr7[at] - half) & 0xff
+      step = 0
+    }
+
+    // 0x26ca: a cadence below 8 on a syllable carrying the moved marker
+    // spreads the step evenly instead of using the table. Dead, as everywhere
+    // else that marker is tested — nothing sets flag bit 4.
+    if (sb(arr3[at] & 0x0f) < 8 && arr4[at] & 0x10) {
+      // 0x26e4
+      step = Math.floor(step / between)
+      for (let k = 0; k < between; k++) {
+        arr0[at + 1] = arr2[at]
+        at++
+        arr2[at] = (arr0[at] - step) & 0xff
+        arr1[at] = (arr2[at] + 5) & 0xff
+      }
+      continue
+    }
+
+    // 0x270c: one of the three windows, by how long the run is.
+    if (between >= 3) {
+      // 0x2718: a long run does not glide towards the next stress at all —
+      // it glides towards 105, and only for its first three syllables.
+      step = (arr2[at] - 0x69) & 0xff
+    }
+    const [from, to] = GLIDE_WINDOW[Math.min(between, 3) - 1]
+    at = glide(arr0, arr1, arr2, at, step, GLIDE.slice(from, to))
+
+    // 0x273a: the rest of a long run holds the pitch the glide left off on,
+    // its peak lifted by twice its own stress level.
+    for (let k = 0; k < between - 3; k++) {
+      const held = arr2[at]
+      at++
+      arr0[at] = held
+      arr2[at] = held
+      arr1[at] = (held + ((arr4[at] & 0x0f) << 1)) & 0xff
+    }
+  }
+
+  // ------------------------------------------------------------------ 0x277e
+  for (let i = counters.first - 1; i >= 0; i--) {
+    arr1[i] = (0x6e + ((arr4[i] & 0x0f) << 1)) & 0xff
+    arr0[i] = 0x6e
+    arr2[i] = 0x6e
+  }
+
+  // ------------------------------------------------------------------ 0x27a8
+  const last = counters.syllables - 1
+  // 0x27b2: a phrase ending on a stress has no tail, and is already done.
+  if (arr4[last] & SYLLABLE.PRIMARY) return
+  const punctuation = arr5[last] & 0x0c
+
+  // 0x27c8: back to the last stressed syllable, or to 0 if there is none.
+  let at = 0
+  for (let i = last - 1; i >= 0; i--) {
+    if (arr4[i] & SYLLABLE.PRIMARY) {
+      at = i
+      break
+    }
+  }
+
+  const count = sw(last - at)
+  if (count !== 0) {
+    // 0x27da: `moveq` then `subi.w`, so a syllable already below 110 wraps to
+    // a large positive and the tail climbs instead of falling.
+    let step = (arr2[at] - 0x6e) & 0xffff
+    // 0x27e4: a full stop aims 35 further down than the others.
+    if (punctuation === 4) step = (step + 35) & 0xffff
+    step = Math.floor(step / count)
+
+    for (let k = 0; k < count; k++) {
+      arr0[at + 1] = arr2[at]
+      at++
+      arr2[at] = (arr0[at] - step) & 0xff
+      arr1[at] = (arr2[at] + 5) & 0xff
+    }
+  }
+
+  // ------------------------------------------------------------------ 0x2812
+  if (punctuation === 8) {
+    // A question. The last syllable ends on 154/128 of the phrase's highest
+    // peak — above everything in it, so the utterance finishes going up.
+    let highest = 0
+    for (let i = counters.syllables - 1; i >= 0; i--) {
+      if (sw(highest) <= arr1[i]) highest = arr1[i]
+    }
+    highest = (((highest & 0xffff) * 0x9a) & 0xffff) >>> 7
+    arr2[last] = highest & 0xff
+    arr1[last] = (highest + 5) & 0xff
+    // 0x2852: and no drop, so nothing later pulls it back down.
+    arr7[last] = 0
+    // 0x2856: with more than one syllable it starts where the one before it
+    // ended, so the rise is the whole of this syllable rather than a jump.
+    if (sw(counters.syllables) > 1) arr0[last] = arr2[last - 1]
+    return
+  }
+
+  // 0x2818: a full stop ends on 75, anything else on 110.
+  arr2[at] = 0x4b
+  if (punctuation === 4) return
+  arr2[at] = 0x6e
 }
