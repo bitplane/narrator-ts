@@ -6,6 +6,7 @@ import {
   applyGain,
   fillMarkedRuns,
   fillZeroRuns,
+  shapeFrication,
   smooth7,
   intrinsicPitch,
   smooth7Weighted,
@@ -124,6 +125,20 @@ describe.skipIf(captures.length === 0)('the frame interpolator, against the devi
           frames,
         )
         expect(Array.from(frames)).toEqual(ip[1].frames!.flat())
+      })
+    }
+
+    const fr = pair(c, 'frames/0x2bc6')
+    if (fr?.[0].frames && fr[1].frames && attrs !== undefined) {
+      it(`frication: ${tag}`, () => {
+        const frames = new Uint8Array(fr[0].frames!.flat())
+        shapeFrication(
+          Uint8Array.from(fr[0].phonemes),
+          Uint8Array.from(fr[0].flags),
+          attrs,
+          frames,
+        )
+        expect(Array.from(frames)).toEqual(fr[1].frames!.flat())
       })
     }
 

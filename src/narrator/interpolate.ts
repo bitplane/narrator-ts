@@ -241,3 +241,114 @@ export function intrinsicPitch(
     at += n * FRAME
   }
 }
+
+/**
+ * hunk+0x2bc6. Two fixes to the frame array that only make sense once every
+ * frame exists: hold the vocal tract still through a pause, and put a real
+ * silence around a voiceless fricative.
+ *
+ * **A pause** (0x2c12) — `.` and `?` copy F1, F2 and F3 from the frame before
+ * them into every frame of the pause. `hunk+0x15e0` already borrows the
+ * previous phoneme's formants for the pause's *first* frame; this carries them
+ * across the whole of it, so the tract holds its shape rather than gliding
+ * anywhere while nothing is being said.
+ *
+ * **A voiceless fricative** (0x2c32) — `s`, `f`, `sh`, `th` and the rest, when
+ * they last more than two frames. Two things happen:
+ *
+ * - The frication noise is ramped in and out, a quarter of full on the first
+ *   frame and half on the second, and the same at the other end. Without it
+ *   the noise switches on at full amplitude, which is the click a synthesiser
+ *   makes when it does not do this.
+ * - If a sonorant is next to it, a frame of that sonorant is silenced outright
+ *   and the frames beyond marked as holes for the interpolator to fill. That
+ *   is the closure — the moment of nothing between a vowel and the hiss — and
+ *   it is dug out of the neighbour rather than out of the fricative.
+ *
+ * The gap is asymmetric: one silent frame and one marker before, one silent
+ * frame and *two* markers after. So a fricative takes longer to let go of the
+ * following vowel than it took to catch the preceding one.
+ */
+export function shapeFrication(
+  phonemes: Uint8Array,
+  flags: Uint8Array,
+  attrs: readonly number[],
+  frames: Uint8Array,
+): void {
+  /** Bit 2: a sonorant. Bit 9: voiced. Bits 12 and 13: frication. */
+  const SONORANT = 1 << 2
+  const VOICED = 1 << 9
+  const FRICATION = 0x3000
+
+  const FULL_STOP = 1
+  const QUESTION = 2
+
+  let at = 0
+  let i = 0
+  /** `bit 31 of D4`, set on the way round and never cleared. */
+  let first = true
+
+  for (;;) {
+    const p = phonemes[i]
+    if (p === END) return
+    const n = flags[i] & 0x3f
+    i++
+
+    if (p === FULL_STOP || p === QUESTION) {
+      // 0x2c16: `subq.w #1` then `dbra`, so a pause of no frames would copy
+      // 65536 of them. The duration stage gives punctuation 24.
+      const count = n === 0 ? 0x10000 : n
+      for (let k = 0; k < count; k++, at += FRAME) {
+        frames[at] = frames[at - FRAME]
+        frames[at + 1] = frames[at - FRAME + 1]
+        frames[at + 2] = frames[at - FRAME + 2]
+      }
+      first = false
+      continue
+    }
+
+    const a = attrs[p] ?? 0
+    // 0x2c38: voiced, or not a fricative, or too short to ramp.
+    if (a & VOICED || !(a & FRICATION) || ((n << 24) >> 24) <= 2) {
+      at += n * FRAME
+      first = false
+      continue
+    }
+
+    // 0x2c54: dig the closure out of the sonorant before it.
+    if (!first && (attrs[phonemes[i - 2]] ?? 0) & SONORANT) {
+      frames[at - FRAME + 3] = 0
+      frames[at - FRAME + 4] = 0
+      frames[at - FRAME + 5] = 0
+      frames[at - 2 * FRAME + 3] = HOLE
+      frames[at - 2 * FRAME + 4] = HOLE
+      frames[at - 2 * FRAME + 5] = HOLE
+    }
+
+    // 0x2c7c: the noise ramp, on the low nibble of the voicing byte.
+    const half = (frames[at + 6] & 0x0f) >>> 1
+    const quarter = ((half + 1) & 0xff) >>> 1
+    frames[at + 6] = (frames[at + 6] & 0xf0) | quarter
+    frames[at + FRAME + 6] = (frames[at + FRAME + 6] & 0xf0) | half
+
+    at += n * FRAME
+
+    frames[at - FRAME + 6] = (frames[at - FRAME + 6] & 0xf0) | quarter
+    frames[at - 2 * FRAME + 6] = (frames[at - 2 * FRAME + 6] & 0xf0) | half
+
+    // 0x2cb0: and out of the sonorant after it.
+    const next = phonemes[i]
+    if (next !== END && (attrs[next] ?? 0) & SONORANT) {
+      frames[at + 3] = 0
+      frames[at + 4] = 0
+      frames[at + 5] = 0
+      frames[at + FRAME + 3] = HOLE
+      frames[at + FRAME + 4] = HOLE
+      frames[at + FRAME + 5] = HOLE
+      frames[at + 2 * FRAME + 3] = HOLE
+      frames[at + 2 * FRAME + 4] = HOLE
+      frames[at + 2 * FRAME + 5] = HOLE
+    }
+    first = false
+  }
+}

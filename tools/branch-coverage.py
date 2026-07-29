@@ -150,6 +150,13 @@ INTERPOLATE = [
     (0x2E54, '0x2dca glottal stop, flat'),
     (0x2E68, '0x2dca vowel or liquid, by F1'),
     (0x2E32, '0x2dca no adjustment'),
+    (0x2BF6, '0x2bc6 total, one per phoneme'),
+    (0x2C12, '0x2bc6 a pause holds the formants still'),
+    (0x2C4E, '0x2bc6 a voiceless fricative long enough to ramp'),
+    (0x2C54, '0x2bc6   not the first phoneme'),
+    (0x2C68, '0x2bc6   a sonorant before it, dig out the closure'),
+    (0x2CC8, '0x2bc6   a sonorant after it'),
+    (0x2CEC, '0x2bc6 nothing to do'),
 ]
 
 # The five routines hunk+0x1ee0 calls: the prosody pass.
