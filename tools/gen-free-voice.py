@@ -571,7 +571,14 @@ def voice_and_amps(f1, f2, f3):
 #
 # The ordering is Klatt 1976 ("Linguistic uses of segmental duration"): vowels
 # longest and low vowels longer than high ones, fricatives next, voiceless
-# longer than voiced, stops shortest. Unstressed is roughly a third.
+# longer than voiced, stops shortest.
+#
+# Stress shortens a vowel a great deal and a consonant hardly at all, which is
+# Klatt's finding too and stands to reason: what an unstressed syllable loses
+# is its nucleus, while the consonants around it still have to be articulated.
+# One reduction factor for everything made the consonants half the length they
+# should be, and it is audible as the whole voice sounding hurried.
+REDUCTION = {'vowel': 0.42, 'consonant': 0.68}
 DURATION = {
     'vowel': 22, 'liquid': 11, 'glide': 10, 'nasal': 9,
     'fricative': 14, 'stop': 9, 'aspirate': 10,
@@ -580,6 +587,7 @@ DURATION = {
     'consonant': 6,
 }
 LOW_VOWELS = {'AA', 'AE', 'AO', 'AH', 'OH'}
+REDUCED = {'AX', 'IX', 'UX'}
 HIGH_VOWELS = {'IY', 'IH', 'IX', 'UW', 'UX'}
 
 
@@ -622,8 +630,14 @@ def durations():
             base -= 3
         if 'voiced' in feats and 'fricative' in feats:
             base -= 3         # voiced fricatives are shorter
+        # A schwa is a reduced vowel by definition -- it is what a vowel
+        # becomes when the syllable loses its stress, so it does not get a
+        # full vowel's length to start from.
+        if n in REDUCED:
+            base = round(base * 0.62)
         st[i] = base
-        un[i] = max(1, round(base * 0.38))
+        un[i] = max(1, round(base * REDUCTION['vowel' if 'vowel' in feats
+                                              else 'consonant']))
     # Punctuation is a pause, not a sound. A full stop and a question are the
     # long ones, a comma shorter, a dash shorter still.
     for n, d in (('.', 24), ('?', 24), (',', 36), ('-', 24), ('Q', 10)):

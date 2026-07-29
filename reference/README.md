@@ -152,10 +152,12 @@ Whisper, given each word inside a carrier phrase, scores:
 | | |
 |---|---|
 | 33.2 voice, 33.2 letter-to-sound | 35/88 = 40% |
-| free voice, 33.2 letter-to-sound | 8/88 = 9% |
-| free voice, free letter-to-sound | 6/88 = 7% |
+| free voice, 33.2 letter-to-sound | 16/88 = 18% |
+| free voice, free letter-to-sound | 9/88 = 10% |
 
-The letter-to-sound table costs about one word. Everything else is the voice.
+Everything above the second row is the voice; the gap between the second and
+third is the letter-to-sound table, which has no stress marks and so gives the
+prosody stages nothing to work with.
 That gap is invisible to `voice-texture.py`, which has the two agreeing to
 within a few percent on centroid, roughness and high-frequency share — sounding
 like 33.2 and being as intelligible as 33.2 are different properties, and only
