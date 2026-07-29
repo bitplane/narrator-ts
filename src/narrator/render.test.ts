@@ -18,6 +18,9 @@ import { render, FRAME, FRAME_BYTES } from './render.js'
  */
 const FRAMES = 'fixtures/golden/frames.json'
 
+/** See the comment by `check` below. */
+const KNOWN_DIVERGENT = new Set(['J', 'DHIHS IHZ AH TEH4ST', 'PIY3 KEY3 JIY3'])
+
 interface Capture {
   in: string
   params: Record<string, number>
@@ -51,12 +54,12 @@ describe.skipIf(captures.length === 0)('the renderer, against captured frames', 
     // The last frame is the end marker and is never rendered.
     const body = c.frames.filter((f) => (f[FRAME.F1_FREQ] & 0x80) === 0)
     const unvoiced = body.filter((f) => f[FRAME.VOICING] !== 0).length
-    // The voiced path is exact. The unvoiced one has the right shape — the
-    // output length matches to the sample, and the two-samples-per-noise-byte
-    // pairing is right — but the values still diverge once the first
-    // fricative frame is reached. Marked as an expected failure rather than
-    // hidden, so it announces itself the moment it starts passing.
-    const check = unvoiced ? it.fails : it
+    // Still diverging, all of them shortly after a *mixed*-voicing frame (a
+    // voicing byte with bit 7 set, i.e. a voiced fricative). The device
+    // freezes F1 there and we do not, so some state a mixed frame leaves
+    // behind is still unaccounted for. Marked rather than hidden, so it
+    // announces itself the moment it starts passing.
+    const check = KNOWN_DIVERGENT.has(c.in) ? it.fails : it
     check(`${c.in} (${c.frames.length} frames, ${unvoiced} unvoiced)`, () => {
       const got = render(Uint8Array.from(c.frames.flat()), {
         wave: Uint8Array.from(c.wave),

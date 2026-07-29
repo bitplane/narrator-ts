@@ -406,13 +406,31 @@ the voiced component added to each. So unvoiced runs at the output rate while
 voiced runs at half it, and the incidental 10-17% equality measured earlier is
 just two nibbles happening to match.
 
+Three more things the noise path does, none of them guessable:
+
+**The fricative index ping-pongs.** It walks up the 0x1e0-byte table, reverses
+at 0 and at 0x1df, and walks back (`hunk+0x56b2`, step in `A5+0x12`). Wrapping
+instead would put a discontinuity in the noise once per pass.
+
+**A pure-noise frame edits the frame array.** For a voicing byte of 1..0x7f —
+noise with no mixed bit — `hunk+0x5564` zeroes *this* frame's three amplitudes
+and *the next frame's*, in place. Since amplitudes are only sampled at a pitch
+pulse, a pulse landing on or after a fricative reads those zeros rather than
+what the front end wrote. Leaving it out is invisible until a plosive.
+
+**Pure noise never ticks the pitch counter** and never touches a phase
+(`hunk+0x56dc`); it only counts the frame down. A mixed frame does tick it, but
+advances F1 only and zeroes the F2/F3 pair each sample (`hunk+0x56ca`),
+skipping the waveform stepping entirely.
+
 ## Still open
 
-- **The noise values.** The unvoiced path has the right shape in the port —
-  output length matches to the sample and the nibble pairing is right — but the
-  values diverge from the first fricative frame. The index into the fricative
-  table (`A5+0x10`) is the likely culprit; it is read at `hunk+0x5614` and its
-  advance has not been traced.
+- **What a mixed-voicing frame leaves behind.** 21 of 24 captured utterances
+  are sample-exact, including pure fricatives, plosives and multi-word phrases.
+  The three that are not all diverge shortly after a frame whose voicing byte
+  has bit 7 set: the device freezes F1 on the following frame (which carries a
+  zero increment) and the port does not, so it is still advancing a phase the
+  device has stopped. `J`, `DHIHS IHZ AH TEH4ST` and `PIY3 KEY3 JIY3`.
 - **How phonemes become frames** — the duration model, and how `rate` and
   stress scale it. The routines are identified; their contents are not. This is
   the whole front half of the synthesizer.

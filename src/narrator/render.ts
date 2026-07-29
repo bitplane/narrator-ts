@@ -44,6 +44,9 @@ export const FRAME_BYTES = 8
  */
 export const BUFFER_BYTES = 0x200
 
+/** Where the fricative index turns round — one short of the table's 0x1e0. */
+const NOISE_END = 0x1df
+
 /** Everything the loop reads that is not in a frame. */
 export interface RenderTables {
   /** The waveform table at hunk+0x4aae, stepped 0x40 at a time. */
@@ -74,7 +77,10 @@ const sword = (v: number): number => (lo(v) << 16) >> 16
  * detail — it is why the voice sounds the way it does, and a renderer that
  * computes every sample at the output rate is neither exact nor right.
  */
-export function render(frames: Uint8Array, t: RenderTables): Int8Array {
+export function render(input: Uint8Array, t: RenderTables): Int8Array {
+  // The device edits its frame array as it goes (see decode), so work on a
+  // copy rather than handing that surprise back to the caller.
+  const frames = Uint8Array.from(input)
   const out: number[] = []
   const wave = t.wave
   const amp = t.ampTable
@@ -93,7 +99,8 @@ export function render(frames: Uint8Array, t: RenderTables): Int8Array {
   let f2f3inc = 0
   let voicing = 0
   let noise: Uint8Array | undefined
-  let noiseIndex = 0
+  let noiseIndex = 0                       // A5+0x10
+  let noiseStep = 1                        // A5+0x12, initialised at 0x53e6
   let noiseAmp = 0
   let mixed = false
   let done = false
@@ -135,6 +142,23 @@ export function render(frames: Uint8Array, t: RenderTables): Int8Array {
       mixed = (voicing & 0x80) !== 0
       noiseAmp = (voicing & 0x0f) << 5
       noise = t.fricatives?.[(voicing >> 4) & 7]
+      // 0x558c: without the mixed bit there is no voiced formant at all.
+      if (!mixed) d3 = 0
+    }
+    // 0x5562-0x5570. `ble` is signed, so this runs for a voicing byte of
+    // 1..0x7f — pure noise, no mixed bit — and it *edits the frame array*:
+    // this frame's three amplitudes and the next frame's are zeroed on the
+    // spot. Amplitudes are only sampled at a pitch pulse, so a pulse landing
+    // on or just after a fricative reads the zeros rather than what the front
+    // end put there. Leaving it out is invisible until a plosive.
+    if (voicing > 0 && voicing < 0x80) {
+      for (const base of [fp, fp + FRAME_BYTES]) {
+        if (base + FRAME.F3_AMP < frames.length) {
+          frames[base + FRAME.F1_AMP] = 0
+          frames[base + FRAME.F2_AMP] = 0
+          frames[base + FRAME.F3_AMP] = 0
+        }
+      }
     }
     fp += FRAME_BYTES
     return true
@@ -181,33 +205,50 @@ export function render(frames: Uint8Array, t: RenderTables): Int8Array {
         const w = wave[a0 + ((lo(d1) >>> 4) & 0x3f)] & 0x1f
         voiced = amp[(w | d3) & (amp.length - 1)]
       }
-      const b = noise ? noise[noiseIndex % noise.length] : 0
+      const b = noise ? noise[noiseIndex] : 0
       const s1 = (voiced + amp[(((b & 0x0f) << 1) | noiseAmp) & (amp.length - 1)]) & 0xff
       const s2 = (amp[(((b & 0xf0) >>> 3) | noiseAmp) & (amp.length - 1)] + voiced) & 0xff
-      noiseIndex++
       out.push(s1, s2)                      // 0x5648 and 0x565a
+      // 0x56b2: the index ping-pongs rather than wrapping — it walks to the
+      // end of the 0x1e0-byte table, reverses, and walks back. Wrapping would
+      // put a discontinuity in the noise once per pass.
+      noiseIndex += noiseStep
+      if (noiseIndex === 0 || noiseIndex === NOISE_END) noiseStep = -noiseStep
     }
 
-    // ------------------------------------------------------------ 0x5518
-    d1 = lo(d1 + f1inc) & 0x3ff
-    d2 = (((swap(d2) >>> 0) + f2f3inc) >>> 0)
-    d2 = swap(d2) & 0x03ff03ff
-
-    if (--waveCount === 0) {
-      a0 += 0x40
-      waveCount = t.waveStep
-    }
-
-    d0 = dec(d0)
-    if (sword(d0) < 0) {
-      if (!nextFrame()) done = true
-    } else {
-      // 0x55b0: the frame is not over, but the pitch counter still ticks —
-      // and a pulse mid-frame reloads the amplitudes just the same.
-      d0 = swap(d0)
+    if (voicing === 0 || mixed) {
+      if (voicing === 0) {
+        // -------------------------------------------------------- 0x5518
+        d1 = lo(d1 + f1inc) & 0x3ff
+        d2 = (((swap(d2) >>> 0) + f2f3inc) >>> 0)
+        d2 = swap(d2) & 0x03ff03ff
+        if (--waveCount === 0) {
+          a0 += 0x40
+          waveCount = t.waveStep
+        }
+      } else {
+        // 0x56ca: a mixed frame advances only F1, and zeroes the pair —
+        // it jumps straight to the counters, past the waveform stepping.
+        d1 = lo(d1 + f1inc) & 0x3ff
+        d2 = 0
+      }
+      // ---------------------------------------------------------- 0x5540
       d0 = dec(d0)
-      if (sword(d0) < 0) pitchPulse(cur)
-      d0 = swap(d0)
+      if (sword(d0) < 0) {
+        if (!nextFrame()) done = true
+      } else {
+        // 0x55b0: the frame is not over, but the pitch counter still ticks —
+        // and a pulse mid-frame reloads the amplitudes just the same.
+        d0 = swap(d0)
+        d0 = dec(d0)
+        if (sword(d0) < 0) pitchPulse(cur)
+        d0 = swap(d0)
+      }
+    } else {
+      // 0x56dc: pure noise never ticks the pitch counter and never touches
+      // a phase. It only counts the frame down.
+      d0 = dec(d0)
+      if (sword(d0) < 0 && !nextFrame()) done = true
     }
     if (done) break
   }

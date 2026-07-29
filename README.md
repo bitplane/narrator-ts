@@ -119,7 +119,7 @@ the full 4,865-phrase corpus is 45 seconds per build.
 | `narrator.device` under emulation | **speaking, on all 5 builds** — 1.6 through 37.7 |
 | narrator corpus | 4,865 phrases; **two synthesizers across 5 builds**, measured |
 | narrator pipeline | mapped — dispatch, stages, renderer, frame format |
-| **TypeScript renderer** | **voiced path sample-exact** against captured frames; noise path not yet |
+| **TypeScript renderer** | **sample-exact on 21 of 24 captures**, voiced and unvoiced |
 | TypeScript synthesizer | front half (phonemes to frames) not started |
 
 Only two distinct translator behaviours exist across 1985-1991: 1.3, and
