@@ -1,6 +1,6 @@
 {
   "name": "narrator-ts",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "TypeScript reimplementation of the Amiga narrator.device and translator.library",
   "type": "module",
   "license": "MIT",
