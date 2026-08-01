@@ -30,6 +30,7 @@
     "prepublishOnly": "npm run build && npm test",
     "test": "vitest run",
     "test:watch": "vitest",
+    "export:aros": "vite-node tools/export-aros.ts --",
     "say": "vite-node tools/say.ts --",
     "oracle:build": "bash tools/fetch-musashi.sh && make -C tools/oracle"
   },
@@ -48,6 +49,10 @@
     "./translator": {
       "types": "./dist/translator/index.d.ts",
       "default": "./dist/translator/index.js"
+    },
+    "./aros-resource": {
+      "types": "./dist/aros-resource/index.d.ts",
+      "default": "./dist/aros-resource/index.js"
     },
     "./reference/nrl-table.json": "./reference/nrl-table.json",
     "./reference/voice-free.json": "./reference/voice-free.json",

@@ -78,6 +78,24 @@ fields. `npm run say` with no arguments prints them.
 
 Every tool under `tools/` takes `--help`.
 
+## AROS resource export
+
+Create the versioned IFF resource consumed by AROS `translator.library`,
+`narrator.device`, and `speech.device`:
+
+```sh
+npm run export:aros -- -o speech.iff
+npm run export:aros -- -o speech.iff \
+  --translator data/translator-33.2.json \
+  --voice data/narrator-33.2.json
+npm run export:aros -- -o speech-resource.c --format c
+```
+
+The first command uses the redistributable reference tables. The second uses
+locally extracted authentic tables; the resulting file has the same legal
+status as those inputs and should not be redistributed.
+The C form contains the identical IFF payload as a byte array for ROM builds.
+
 ## Status
 
 | | |
