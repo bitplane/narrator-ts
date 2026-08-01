@@ -7,14 +7,84 @@ import { AROS_RESOURCE_VERSION, decodeArosResource, emitArosCResource, encodeAro
 
 const translator = JSON.parse(readFileSync('reference/nrl-table.json', 'utf8')) as TranslatorTables
 const voice = JSON.parse(readFileSync('reference/voice-free.json', 'utf8')) as VoiceData
+const metadata = {
+  generator: 'narrator-ts test',
+  translatorLicense: 'Public domain; US Government work',
+  voiceLicense: 'Public domain',
+}
+
+function chunkIds(bytes: Uint8Array): string[] {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  const ids: string[] = []
+  for (let at = 12; at < bytes.length;) {
+    ids.push(String.fromCharCode(...bytes.subarray(at, at + 4)))
+    const size = view.getUint32(at + 4)
+    at += 8 + size + (size & 1)
+  }
+  return ids
+}
+
+function chunkOffset(bytes: Uint8Array, wanted: string): number {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  for (let at = 12; at < bytes.length;) {
+    const id = String.fromCharCode(...bytes.subarray(at, at + 4))
+    if (id === wanted) return at
+    const size = view.getUint32(at + 4)
+    at += 8 + size + (size & 1)
+  }
+  throw new Error(`missing ${wanted}`)
+}
+
+function legacyResource(bytes: Uint8Array): Uint8Array {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  const kept: Uint8Array[] = []
+  for (let at = 12; at < bytes.length;) {
+    const id = String.fromCharCode(...bytes.subarray(at, at + 4))
+    const size = view.getUint32(at + 4), total = 8 + size + (size & 1)
+    if (id === 'VERS' || id === 'LTRS' || id === 'NVOI') kept.push(bytes.slice(at, at + total))
+    at += total
+  }
+  const json = new TextEncoder().encode('{"legacy":true}')
+  const meta = new Uint8Array(8 + json.length + (json.length & 1))
+  meta.set(new TextEncoder().encode('META'))
+  new DataView(meta.buffer).setUint32(4, json.length)
+  meta.set(json, 8)
+  const bodyLength = 4 + kept.reduce((n, part) => n + part.length, 0) + meta.length
+  const out = new Uint8Array(8 + bodyLength)
+  out.set(new TextEncoder().encode('FORM'), 0)
+  new DataView(out.buffer).setUint32(4, bodyLength)
+  out.set(new TextEncoder().encode('NARR'), 8)
+  let at = 12
+  out.set(meta, at); at += meta.length
+  for (const part of kept) { out.set(part, at); at += part.length }
+  return out
+}
 
 describe('AROS Narrator IFF resource', () => {
   it('round-trips the deployment tables', () => {
-    const encoded = encodeArosResource({ translator, voice })
+    const encoded = encodeArosResource({ translator, voice, metadata })
     const decoded = decodeArosResource(encoded)
     expect(String.fromCharCode(...encoded.subarray(0, 4))).toBe('FORM')
     expect(String.fromCharCode(...encoded.subarray(8, 12))).toBe('NARR')
     expect(decoded.version).toBe(AROS_RESOURCE_VERSION)
+    expect(chunkIds(encoded)).toEqual([
+      'VERS', 'FVER', 'TVER', 'TSRC', 'TLIC', 'LTRS',
+      'VVER', 'VSRC', 'VLIC', 'NVOI',
+    ])
+    expect(chunkIds(encoded)).not.toContain('META')
+    expect(decoded.metadata).toEqual({
+      generator: metadata.generator,
+      translator: {
+        version: translator.version,
+        source: translator.source,
+        license: metadata.translatorLicense,
+      },
+      voice: {
+        version: voice.version,
+        source: voice.source,
+        license: metadata.voiceLicense,
+      },
+    })
     expect(decoded.translator?.classes).toEqual(translator.classes)
     expect(decoded.translator?.buckets).toEqual(translator.buckets)
     expect(decoded.voice?.names).toEqual(voice.names)
@@ -27,14 +97,61 @@ describe('AROS Narrator IFF resource', () => {
   })
 
   it('rejects truncated resources', () => {
-    const encoded = encodeArosResource({ translator })
+    const encoded = encodeArosResource({
+      translator,
+      metadata: { generator: metadata.generator, translatorLicense: metadata.translatorLicense },
+    })
     expect(() => decodeArosResource(encoded.subarray(0, encoded.length - 1))).toThrow(/resource|FORM|chunk/)
   })
 
   it('can emit the resource as portable C', () => {
-    const source = emitArosCResource({ translator }, 'test_resource')
+    const input = {
+      translator,
+      metadata: { generator: metadata.generator, translatorLicense: metadata.translatorLicense },
+    }
+    const bytes = encodeArosResource(input)
+    const source = emitArosCResource(input, 'test_resource')
+    const cBytes = Uint8Array.from(
+      Array.from(source.matchAll(/0x([0-9a-f]{2})/g), (match) => Number.parseInt(match[1], 16)),
+    )
     expect(source).toContain('const uint8_t test_resource[]')
     expect(source).toContain('const size_t test_resource_length')
-    expect(() => emitArosCResource({ translator }, 'not-a-symbol')).toThrow(/symbol/)
+    expect(cBytes).toEqual(bytes)
+    expect(() => emitArosCResource({
+      translator,
+      metadata: { generator: metadata.generator, translatorLicense: metadata.translatorLicense },
+    }, 'not-a-symbol')).toThrow(/symbol/)
+  })
+
+  it('loads legacy tables without parsing their JSON metadata', () => {
+    const encoded = encodeArosResource({ translator, voice, metadata })
+    const decoded = decodeArosResource(legacyResource(encoded))
+    expect(decoded.metadata).toEqual({})
+    expect(decoded.translator?.classes).toEqual(translator.classes)
+    expect(decoded.voice?.names).toEqual(voice.names)
+  })
+
+  it('rejects invalid native metadata', () => {
+    expect(() => encodeArosResource({
+      translator,
+      metadata: { generator: 'narrator-ts test', translatorLicense: '' },
+    })).toThrow(/license/)
+    expect(() => encodeArosResource({
+      translator,
+      metadata: { generator: 'narrator-ts\0test', translatorLicense: 'Public domain' },
+    })).toThrow(/Latin-1/)
+    expect(() => encodeArosResource({
+      translator,
+      metadata: { generator: 'x'.repeat(256), translatorLicense: 'Public domain' },
+    })).toThrow(/255/)
+
+    const encoded = encodeArosResource({ translator, voice, metadata })
+    const nulText = encoded.slice()
+    nulText[chunkOffset(nulText, 'FVER') + 8] = 0
+    expect(() => decodeArosResource(nulText)).toThrow(/FVER/)
+
+    const duplicate = encoded.slice()
+    duplicate.set(new TextEncoder().encode('FVER'), chunkOffset(duplicate, 'TVER'))
+    expect(() => decodeArosResource(duplicate)).toThrow(/duplicate FVER/)
   })
 })

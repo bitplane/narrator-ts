@@ -20,6 +20,23 @@ const ALT_VOICE_COLUMNS = ['f1', 'f2', 'f3'] as const
 export interface ArosResourceInput {
   translator?: TranslatorTables
   voice?: VoiceData
+  metadata: {
+    generator: string
+    translatorLicense?: string
+    voiceLicense?: string
+  }
+}
+
+export interface ArosComponentMetadata {
+  version?: string
+  source?: string
+  license?: string
+}
+
+export interface ArosResourceMetadata {
+  generator?: string
+  translator?: ArosComponentMetadata
+  voice?: ArosComponentMetadata
 }
 
 export interface ArosVoiceTables {
@@ -34,7 +51,7 @@ export interface ArosVoiceTables {
 
 export interface DecodedArosResource {
   version: number
-  metadata: Record<string, unknown>
+  metadata: ArosResourceMetadata
   translator?: TranslatorTables
   voice?: ArosVoiceTables
 }
@@ -72,6 +89,15 @@ class Writer {
     for (const c of value) {
       const code = c.charCodeAt(0)
       if (code > 0xff) throw new RangeError(`not Latin-1: ${JSON.stringify(c)}`)
+      this.u8(code)
+    }
+  }
+
+  text(value: string, label: string): void {
+    if (value.length === 0 || value.length > 0xff) throw new RangeError(`${label} must be 1..255 bytes`)
+    for (const c of value) {
+      const code = c.charCodeAt(0)
+      if (code === 0 || code > 0xff) throw new RangeError(`${label} is not non-NUL Latin-1 text`)
       this.u8(code)
     }
   }
@@ -120,6 +146,12 @@ function chunk(id: string, payload: Uint8Array): Uint8Array {
   w.raw(payload)
   if (payload.length & 1) w.u8(0)
   return w.finish()
+}
+
+function textChunk(id: string, value: string): Uint8Array {
+  const w = new Writer()
+  w.text(value, id)
+  return chunk(id, w.finish())
 }
 
 function translatorChunk(data: TranslatorTables): Uint8Array {
@@ -175,15 +207,23 @@ function voiceChunk(data: VoiceData): Uint8Array {
 /** Encode free or extracted tables as the AROS deployment resource. */
 export function encodeArosResource(input: ArosResourceInput): Uint8Array {
   if (!input.translator && !input.voice) throw new RangeError('resource contains no tables')
+  if (!input.metadata?.generator) throw new RangeError('resource generator is required')
+  if (input.translator && !input.metadata.translatorLicense) throw new RangeError('translator license is required')
+  if (input.voice && !input.metadata.voiceLicense) throw new RangeError('voice license is required')
   const version = new Writer(); version.u32(AROS_RESOURCE_VERSION)
-  const meta = new TextEncoder().encode(JSON.stringify({
-    format: 'AROS Narrator Resource',
-    translator: input.translator && { version: input.translator.version, source: input.translator.source },
-    voice: input.voice && { version: input.voice.version, source: input.voice.source },
-  }))
-  const chunks = [chunk('VERS', version.finish()), chunk('META', meta)]
-  if (input.translator) chunks.push(chunk('LTRS', translatorChunk(input.translator)))
-  if (input.voice) chunks.push(chunk('NVOI', voiceChunk(input.voice)))
+  const chunks = [chunk('VERS', version.finish()), textChunk('FVER', input.metadata.generator)]
+  if (input.translator) {
+    chunks.push(textChunk('TVER', input.translator.version))
+    chunks.push(textChunk('TSRC', input.translator.source))
+    chunks.push(textChunk('TLIC', input.metadata.translatorLicense!))
+    chunks.push(chunk('LTRS', translatorChunk(input.translator)))
+  }
+  if (input.voice) {
+    chunks.push(textChunk('VVER', input.voice.version))
+    chunks.push(textChunk('VSRC', input.voice.source))
+    chunks.push(textChunk('VLIC', input.metadata.voiceLicense!))
+    chunks.push(chunk('NVOI', voiceChunk(input.voice)))
+  }
   const body = concat(chunks)
   const head = new Writer(); head.id('FORM'); head.u32(body.length + 4); head.id(AROS_RESOURCE_FORM)
   return concat([head.finish(), body])
@@ -219,17 +259,27 @@ function chunksFrom(bytes: Uint8Array): Map<string, Uint8Array> {
   const u32 = (at: number): number => new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(at)
   if (ascii(0) !== 'FORM' || ascii(8) !== AROS_RESOURCE_FORM || u32(4) + 8 !== bytes.length) throw new RangeError('not an AROS Narrator IFF resource')
   const chunks = new Map<string, Uint8Array>()
-  for (let at = 12; at < bytes.length;) {
+  const singletons = new Set(['VERS', 'FVER', 'TVER', 'TSRC', 'TLIC', 'LTRS', 'VVER', 'VSRC', 'VLIC', 'NVOI'])
+  let at = 12
+  while (at < bytes.length) {
     if (at + 8 > bytes.length) throw new RangeError('truncated IFF chunk')
     const id = ascii(at), size = u32(at + 4), start = at + 8, end = start + size
     if (end > bytes.length) throw new RangeError('truncated IFF chunk payload')
+    if (singletons.has(id) && chunks.has(id)) throw new RangeError(`duplicate ${id} chunk`)
     chunks.set(id, bytes.subarray(start, end))
     at = end + (size & 1)
   }
+  if (at !== bytes.length) throw new RangeError('missing IFF pad byte')
   return chunks
 }
 
-function decodeTranslator(bytes: Uint8Array): TranslatorTables {
+function decodeText(bytes: Uint8Array | undefined, id: string): string | undefined {
+  if (!bytes) return undefined
+  if (bytes.length === 0 || bytes.length > 0xff || bytes.includes(0)) throw new RangeError(`invalid ${id} text chunk`)
+  return String.fromCharCode(...bytes)
+}
+
+function decodeTranslator(bytes: Uint8Array, metadata?: ArosComponentMetadata): TranslatorTables {
   const r = new Reader(bytes)
   const classes = Array.from({ length: r.u16() }, () => r.u16())
   const wildcards = r.latin8()
@@ -243,7 +293,11 @@ function decodeTranslator(bytes: Uint8Array): TranslatorTables {
     buckets.push(rules)
   }
   if (!r.done()) throw new RangeError('trailing translator data')
-  return { version: 'resource', source: 'IFF LTRS', classes, wildcards, vowels, buckets }
+  return {
+    version: metadata?.version ?? 'resource',
+    source: metadata?.source ?? 'IFF LTRS',
+    classes, wildcards, vowels, buckets,
+  }
 }
 
 function decodeVoice(bytes: Uint8Array): ArosVoiceTables {
@@ -272,8 +326,24 @@ export function decodeArosResource(bytes: Uint8Array): DecodedArosResource {
   if (!versionBytes || versionBytes.length !== 4) throw new RangeError('missing resource version')
   const version = new DataView(versionBytes.buffer, versionBytes.byteOffset, 4).getUint32(0)
   if (version !== AROS_RESOURCE_VERSION) throw new RangeError(`unsupported resource version ${version}`)
-  const metadata = JSON.parse(new TextDecoder().decode(chunks.get('META') ?? new Uint8Array())) as Record<string, unknown>
-  const translator = chunks.has('LTRS') ? decodeTranslator(chunks.get('LTRS')!) : undefined
+  const translatorMetadata: ArosComponentMetadata = {
+    version: decodeText(chunks.get('TVER'), 'TVER'),
+    source: decodeText(chunks.get('TSRC'), 'TSRC'),
+    license: decodeText(chunks.get('TLIC'), 'TLIC'),
+  }
+  const voiceMetadata: ArosComponentMetadata = {
+    version: decodeText(chunks.get('VVER'), 'VVER'),
+    source: decodeText(chunks.get('VSRC'), 'VSRC'),
+    license: decodeText(chunks.get('VLIC'), 'VLIC'),
+  }
+  const metadata: ArosResourceMetadata = {}
+  const generator = decodeText(chunks.get('FVER'), 'FVER')
+  if (generator !== undefined) metadata.generator = generator
+  if (Object.values(translatorMetadata).some((value) => value !== undefined))
+    metadata.translator = translatorMetadata
+  if (Object.values(voiceMetadata).some((value) => value !== undefined))
+    metadata.voice = voiceMetadata
+  const translator = chunks.has('LTRS') ? decodeTranslator(chunks.get('LTRS')!, metadata.translator) : undefined
   const voice = chunks.has('NVOI') ? decodeVoice(chunks.get('NVOI')!) : undefined
   return { version, metadata, translator, voice }
 }

@@ -87,7 +87,9 @@ Create the versioned IFF resource consumed by AROS `translator.library`,
 npm run export:aros -- -o speech.iff
 npm run export:aros -- -o speech.iff \
   --translator data/translator-33.2.json \
-  --voice data/narrator-33.2.json
+  --voice data/narrator-33.2.json \
+  --translator-license "User supplied; redistribution not granted" \
+  --voice-license "User supplied; redistribution not granted"
 npm run export:aros -- -o speech-resource.c --format c
 ```
 
@@ -95,6 +97,14 @@ The first command uses the redistributable reference tables. The second uses
 locally extracted authentic tables; the resulting file has the same legal
 status as those inputs and should not be redistributed.
 The C form contains the identical IFF payload as a byte array for ROM builds.
+
+`FORM NARR` uses ordinary length-delimited Latin-1 IFF chunks rather than an
+embedded serialization format. `VERS` is the binary resource schema version;
+`FVER` records the narrator-ts package version. `TVER`/`TSRC`/`TLIC` describe
+the translator and `VVER`/`VSRC`/`VLIC` describe the voice, followed by their
+`LTRS` and `NVOI` table chunks. The built-in free inputs are labelled public
+domain. Explicit table paths conservatively default to `User supplied;
+redistribution not granted`; the two `--*-license` options override that text.
 
 ## Status
 
