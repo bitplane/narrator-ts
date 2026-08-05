@@ -2,8 +2,8 @@
  * AROS Narrator resource interchange.
  *
  * The file is an ordinary big-endian IFF FORM. `LTRS` holds the compact
- * letter-to-sound table and `NVOI` the subset of a voice consumed by AROS's
- * bounded narrator engine. Unknown chunks can be skipped by older readers.
+ * letter-to-sound table. The voice uses separate native IFF chunks so each
+ * table is independently inspectable and no JSON parser is needed on AROS.
  */
 
 import type { VoiceData } from '../narrator/voice.js'
@@ -13,7 +13,8 @@ export const AROS_RESOURCE_FORM = 'NARR'
 export const AROS_RESOURCE_VERSION = 1
 
 const VOICE_COLUMNS = [
-  'f1', 'f2', 'f3', 'a1', 'a2', 'a3', 'voicing', 'mouth',
+  'f1', 'f2', 'f3', 'a1', 'a2', 'a3', 'voicing', 'rank', 'weight',
+  'transitionIn', 'transitionOut', 'mouth',
 ] as const
 const ALT_VOICE_COLUMNS = ['f1', 'f2', 'f3'] as const
 
@@ -46,6 +47,10 @@ export interface ArosVoiceTables {
   paramsAlt: Record<(typeof ALT_VOICE_COLUMNS)[number], number[]>
   stressed: number[]
   unstressed: number[]
+  gain: number[]
+  rules: VoiceData['rules']
+  wave: number[]
+  amp: number[]
   fricatives: number[][]
 }
 
@@ -180,28 +185,46 @@ function padded(values: readonly number[] | undefined, count: number): number[] 
   return out
 }
 
-function voiceChunk(data: VoiceData): Uint8Array {
+function voiceChunks(data: VoiceData): Uint8Array[] {
   const count = data.names.length
   if (count === 0 || count > 0xffff) throw new RangeError('invalid voice name count')
-  const w = new Writer()
-  w.u16(count)
+  const names = new Writer(); names.u16(count)
   for (const name of data.names) {
     if (name.length > 2) throw new RangeError(`phoneme name is longer than two bytes: ${name}`)
-    w.u8(name.charCodeAt(0) || 0); w.u8(name.charCodeAt(1) || 0)
+    names.u8(name.charCodeAt(0) || 0); names.u8(name.charCodeAt(1) || 0)
   }
-  for (const value of padded(data.attrs, count)) w.u32(value)
-  for (const name of VOICE_COLUMNS.slice(0, 3)) w.raw(padded(data.params[name], count))
-  for (const name of ALT_VOICE_COLUMNS) w.raw(padded(data.paramsAlt[name], count))
-  for (const name of VOICE_COLUMNS.slice(3)) w.raw(padded(data.params[name], count))
-  w.raw(padded(data.stressed, count))
-  w.raw(padded(data.unstressed, count))
+  const attrs = new Writer()
+  for (const value of padded(data.attrs, count)) attrs.u32(value)
+  const params = new Writer()
+  for (const name of VOICE_COLUMNS) params.raw(padded(data.params[name], count))
+  const alt = new Writer()
+  for (const name of ALT_VOICE_COLUMNS) alt.raw(padded(data.paramsAlt[name], count))
+  const durations = new Writer()
+  durations.raw(padded(data.stressed, count)); durations.raw(padded(data.unstressed, count))
+  const rules = (set: VoiceData['rules'][keyof VoiceData['rules']]): Uint8Array => {
+    const out = new Writer(); out.u16(set.rules.length)
+    for (const rule of set.rules) {
+      out.u8(rule.match); out.u8(rule.left); out.u8(rule.right); out.u8(rule.flags)
+      out.u8(rule.replace); out.u8(rule.insertBefore); out.u8(rule.insertAfter)
+      out.u8(rule.tests.length); out.raw(rule.tests)
+    }
+    return out.finish()
+  }
+  const fricatives = new Writer()
   const fricativeLength = data.fricatives[0]?.length ?? 0
-  w.u16(data.fricatives.length); w.u16(fricativeLength)
+  fricatives.u16(data.fricatives.length); fricatives.u16(fricativeLength)
   for (const table of data.fricatives) {
     if (table.length !== fricativeLength) throw new RangeError('fricative tables have unequal lengths')
-    w.raw(table)
+    fricatives.raw(table)
   }
-  return w.finish()
+  return [
+    chunk('VNAM', names.finish()), chunk('VATR', attrs.finish()),
+    chunk('VPRM', params.finish()), chunk('VALT', alt.finish()),
+    chunk('VDUR', durations.finish()), chunk('VGAN', Uint8Array.from(data.gain)),
+    chunk('VRL1', rules(data.rules.allophones)), chunk('VRL2', rules(data.rules.frames)),
+    chunk('VWAV', Uint8Array.from(data.wave)), chunk('VAMP', Uint8Array.from(data.amp)),
+    chunk('VFRI', fricatives.finish()),
+  ]
 }
 
 /** Encode free or extracted tables as the AROS deployment resource. */
@@ -222,7 +245,7 @@ export function encodeArosResource(input: ArosResourceInput): Uint8Array {
     chunks.push(textChunk('VVER', input.voice.version))
     chunks.push(textChunk('VSRC', input.voice.source))
     chunks.push(textChunk('VLIC', input.metadata.voiceLicense!))
-    chunks.push(chunk('NVOI', voiceChunk(input.voice)))
+    chunks.push(...voiceChunks(input.voice))
   }
   const body = concat(chunks)
   const head = new Writer(); head.id('FORM'); head.u32(body.length + 4); head.id(AROS_RESOURCE_FORM)
@@ -259,7 +282,11 @@ function chunksFrom(bytes: Uint8Array): Map<string, Uint8Array> {
   const u32 = (at: number): number => new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(at)
   if (ascii(0) !== 'FORM' || ascii(8) !== AROS_RESOURCE_FORM || u32(4) + 8 !== bytes.length) throw new RangeError('not an AROS Narrator IFF resource')
   const chunks = new Map<string, Uint8Array>()
-  const singletons = new Set(['VERS', 'FVER', 'TVER', 'TSRC', 'TLIC', 'LTRS', 'VVER', 'VSRC', 'VLIC', 'NVOI'])
+  const singletons = new Set([
+    'VERS', 'FVER', 'TVER', 'TSRC', 'TLIC', 'LTRS', 'VVER', 'VSRC', 'VLIC',
+    'VNAM', 'VATR', 'VPRM', 'VALT', 'VDUR', 'VGAN', 'VRL1', 'VRL2',
+    'VWAV', 'VAMP', 'VFRI',
+  ])
   let at = 12
   while (at < bytes.length) {
     if (at + 8 > bytes.length) throw new RangeError('truncated IFF chunk')
@@ -300,23 +327,57 @@ function decodeTranslator(bytes: Uint8Array, metadata?: ArosComponentMetadata): 
   }
 }
 
-function decodeVoice(bytes: Uint8Array): ArosVoiceTables {
-  const r = new Reader(bytes), count = r.u16()
+function requiredChunk(chunks: Map<string, Uint8Array>, id: string): Uint8Array {
+  const value = chunks.get(id)
+  if (!value) throw new RangeError(`missing ${id} chunk`)
+  return value
+}
+
+function decodeVoice(chunks: Map<string, Uint8Array>): ArosVoiceTables {
+  const namesReader = new Reader(requiredChunk(chunks, 'VNAM')), count = namesReader.u16()
   const names = Array.from({ length: count }, () => {
-    const a = r.u8(), b = r.u8()
+    const a = namesReader.u8(), b = namesReader.u8()
     return String.fromCharCode(a, b).replace(/\0+$/, '')
   })
-  const attrs = Array.from({ length: count }, () => r.u32())
+  if (!namesReader.done()) throw new RangeError('trailing VNAM data')
+  const attrsReader = new Reader(requiredChunk(chunks, 'VATR'))
+  const attrs = Array.from({ length: count }, () => attrsReader.u32())
+  if (!attrsReader.done()) throw new RangeError('invalid VATR length')
+  const paramsReader = new Reader(requiredChunk(chunks, 'VPRM'))
   const params = {} as ArosVoiceTables['params']
-  for (const name of VOICE_COLUMNS.slice(0, 3)) params[name] = r.vector(count)
+  for (const name of VOICE_COLUMNS) params[name] = paramsReader.vector(count)
+  if (!paramsReader.done()) throw new RangeError('invalid VPRM length')
+  const altReader = new Reader(requiredChunk(chunks, 'VALT'))
   const paramsAlt = {} as ArosVoiceTables['paramsAlt']
-  for (const name of ALT_VOICE_COLUMNS) paramsAlt[name] = r.vector(count)
-  for (const name of VOICE_COLUMNS.slice(3)) params[name] = r.vector(count)
-  const stressed = r.vector(count), unstressed = r.vector(count)
-  const fricativeCount = r.u16(), fricativeLength = r.u16()
-  const fricatives = Array.from({ length: fricativeCount }, () => r.vector(fricativeLength))
-  if (!r.done()) throw new RangeError('trailing voice data')
-  return { names, attrs, params, paramsAlt, stressed, unstressed, fricatives }
+  for (const name of ALT_VOICE_COLUMNS) paramsAlt[name] = altReader.vector(count)
+  if (!altReader.done()) throw new RangeError('invalid VALT length')
+  const durationReader = new Reader(requiredChunk(chunks, 'VDUR'))
+  const stressed = durationReader.vector(count), unstressed = durationReader.vector(count)
+  if (!durationReader.done()) throw new RangeError('invalid VDUR length')
+  const decodeRules = (id: string): VoiceData['rules']['allophones'] => {
+    const rr = new Reader(requiredChunk(chunks, id)), ruleCount = rr.u16()
+    const rules = Array.from({ length: ruleCount }, () => ({
+      match: rr.u8(), left: rr.u8(), right: rr.u8(), flags: rr.u8(),
+      replace: rr.u8(), insertBefore: rr.u8(), insertAfter: rr.u8(),
+      tests: rr.vector(rr.u8()),
+    }))
+    if (!rr.done()) throw new RangeError(`trailing ${id} data`)
+    return { rules }
+  }
+  const fr = new Reader(requiredChunk(chunks, 'VFRI'))
+  const fricativeCount = fr.u16(), fricativeLength = fr.u16()
+  const fricatives = Array.from({ length: fricativeCount }, () => fr.vector(fricativeLength))
+  if (!fr.done()) throw new RangeError('trailing VFRI data')
+  const gain = Array.from(requiredChunk(chunks, 'VGAN'))
+  const wave = Array.from(requiredChunk(chunks, 'VWAV'))
+  const amp = Array.from(requiredChunk(chunks, 'VAMP'))
+  if (gain.length !== 32 || wave.length !== 4096 || amp.length !== 1024)
+    throw new RangeError('invalid fixed voice table length')
+  return {
+    names, attrs, params, paramsAlt, stressed, unstressed, gain,
+    rules: { allophones: decodeRules('VRL1'), frames: decodeRules('VRL2') },
+    wave, amp, fricatives,
+  }
 }
 
 /** Decode and validate an AROS resource, primarily for tools and tests. */
@@ -344,6 +405,6 @@ export function decodeArosResource(bytes: Uint8Array): DecodedArosResource {
   if (Object.values(voiceMetadata).some((value) => value !== undefined))
     metadata.voice = voiceMetadata
   const translator = chunks.has('LTRS') ? decodeTranslator(chunks.get('LTRS')!, metadata.translator) : undefined
-  const voice = chunks.has('NVOI') ? decodeVoice(chunks.get('NVOI')!) : undefined
+  const voice = chunks.has('VNAM') ? decodeVoice(chunks) : undefined
   return { version, metadata, translator, voice }
 }

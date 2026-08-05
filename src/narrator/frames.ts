@@ -27,6 +27,7 @@
 
 import { TERMINATOR } from './parse.js'
 import type { Attrs } from './rewrite.js'
+import { invalidVoice } from './error.js'
 
 /** Bytes per frame. */
 export const FRAME = 8
@@ -115,6 +116,7 @@ export function compact(state: FrameState, attrs: Attrs): void {
   const { phonemes, stress, flags } = state
   let w = 0
   for (let r = 0; ; r++) {
+    if (r >= phonemes.length || w >= phonemes.length) invalidVoice()
     const p = phonemes[r]
     if (p === TERMINATOR) {
       phonemes[w] = TERMINATOR
@@ -148,10 +150,12 @@ export function continuationDurations(state: FrameState, attrs: Attrs, table: Pa
 
   let i = 0
   for (;;) {
+    if (i >= phonemes.length) invalidVoice()
     const p = phonemes[i]
     if (p === TERMINATOR) return
 
     if (p === RX) {
+      if (i === 0) invalidVoice()
       // 0x14b8: the mean, biased — `(a + b) - (a + b) / 4` then halved, which
       // is 3/8 of the sum rather than 1/2, so the pair comes out shorter than
       // either would have been alone.
@@ -165,6 +169,7 @@ export function continuationDurations(state: FrameState, attrs: Attrs, table: Pa
 
     const a = attrs[p] ?? 0
     if (a & ATTR.SPLIT) {
+      if (i + 1 >= phonemes.length) invalidVoice()
       // 0x14f4: halve this phoneme's duration and give the other half to the
       // slot after it, which is one frame longer to make the split exact.
       const half = (flags[i] & DURATION) >> 1
@@ -180,6 +185,7 @@ export function continuationDurations(state: FrameState, attrs: Attrs, table: Pa
     }
 
     // 0x1518: the slot inherits the stress it continues, without the mark.
+    if (i === 0) invalidVoice()
     stress[i] = stress[i - 1] & 0x7f
     const dur = stress[i] & STRESSED ? table.stressed : table.unstressed
     flags[i] = dur[p] ?? 0
@@ -189,6 +195,7 @@ export function continuationDurations(state: FrameState, attrs: Attrs, table: Pa
     // which one comes from the *next* phoneme's attributes, written into the
     // low nibble of the stress byte for hunk+0x15e0 to shift into place.
     if (a & ATTR.FRICATIVE_SOURCE) {
+      if (i >= phonemes.length) invalidVoice()
       const next = attrs[phonemes[i]] ?? 0
       let code = 4
       if (next & (1 << 3)) code = 3
@@ -210,7 +217,9 @@ export function continuationDurations(state: FrameState, attrs: Attrs, table: Pa
 export function allocate(state: FrameState): { frames: Uint8Array; total: number } {
   const { flags } = state
   let total = 0
-  for (let i = 0; flags[i] !== TERMINATOR; i++) total += flags[i] & DURATION
+  let i = 0
+  for (; i < flags.length && flags[i] !== TERMINATOR; i++) total += flags[i] & DURATION
+  if (i === flags.length) invalidVoice()
   return { frames: new Uint8Array((total + 1) * FRAME), total }
 }
 
@@ -238,8 +247,10 @@ export function fill(
   /** A4, which steps once per frame and only when `mouths` was asked for. */
   let mouthAt = 0
   for (let i = 0; ; i++) {
+    if (i >= phonemes.length) invalidVoice()
     const p = phonemes[i]
     if (p === TERMINATOR) {
+      if (at + FRAME > frames.length) invalidVoice()
       // 0x15fe: eight 0xff, and the renderer stops on bit 7 of byte 0.
       frames.fill(0xff, at, at + FRAME)
       return
@@ -289,6 +300,7 @@ export function fill(
     const shape = table.mouth[p] ?? 0
 
     const n = duration === 0 ? 0x10000 : duration
+    if (at + n * FRAME > frames.length - FRAME) invalidVoice()
     for (let k = 0; k < n; k++) {
       if (mouths) mouths[mouthAt++] = shape
       frames[at] = freq.f1[src] ?? 0
@@ -324,9 +336,11 @@ export function blendTransitions(state: FrameState, attrs: Attrs, table: Params,
   let at = 0
 
   for (let i = 0; ; i++) {
+    if (i + 1 >= phonemes.length) invalidVoice()
     at += (flags[i] & DURATION) * FRAME
     const next = phonemes[i + 1]
     if (next === TERMINATOR) return
+    if (at < FRAME || at + 6 > frames.length - FRAME) invalidVoice()
 
     // 0x1768: no transition into a stop's own release — the burst is supposed
     // to arrive abruptly, and blending it would file the edge off.
@@ -379,6 +393,7 @@ export function markTransitions(state: FrameState, attrs: Attrs, table: Params, 
   let at = (flags[0] & DURATION) * FRAME
 
   for (let i = 1; ; i++) {
+    if (i + 1 >= phonemes.length) invalidVoice()
     const here = phonemes[i]
     if (here === TERMINATOR) return
 
@@ -446,6 +461,7 @@ export function markTransitions(state: FrameState, attrs: Attrs, table: Params, 
     }
 
     const mark = (keep: boolean): void => {
+      if (at + 6 > frames.length - FRAME) invalidVoice()
       frames[at] = 0
       frames[at + 1] = 0
       frames[at + 2] = 0
@@ -470,6 +486,8 @@ export function markTransitions(state: FrameState, attrs: Attrs, table: Params, 
  * the start, so the marker survives its own loop.
  */
 export function markFirst(frames: Uint8Array): void {
-  for (let at = 0; frames[at] !== TERMINATOR; at += FRAME) frames[at + 7] = 0
+  let at = 0
+  for (; at < frames.length && frames[at] !== TERMINATOR; at += FRAME) frames[at + 7] = 0
+  if (at >= frames.length) invalidVoice()
   frames[7] = FIRST_FRAME
 }

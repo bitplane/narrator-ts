@@ -25,6 +25,7 @@
 
 import { TERMINATOR } from './parse.js'
 import type { Attrs } from './rewrite.js'
+import { invalidVoice } from './error.js'
 
 /** Attribute bits this stage tests, by the name the pipeline knows them by. */
 const ATTR = {
@@ -106,6 +107,7 @@ export function assignDurations(
   let i = 2
 
   for (;;) {
+    if (i + 2 >= phonemes.length) invalidVoice()
     // -------------------------------------------------------------- 0x1c0c
     const st = stress[i]
     const fl = flags[i]

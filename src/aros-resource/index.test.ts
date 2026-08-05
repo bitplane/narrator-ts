@@ -35,13 +35,16 @@ function chunkOffset(bytes: Uint8Array, wanted: string): number {
   throw new Error(`missing ${wanted}`)
 }
 
-function legacyResource(bytes: Uint8Array): Uint8Array {
+function resourceWithUnknownJson(bytes: Uint8Array): Uint8Array {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
   const kept: Uint8Array[] = []
   for (let at = 12; at < bytes.length;) {
     const id = String.fromCharCode(...bytes.subarray(at, at + 4))
     const size = view.getUint32(at + 4), total = 8 + size + (size & 1)
-    if (id === 'VERS' || id === 'LTRS' || id === 'NVOI') kept.push(bytes.slice(at, at + total))
+    if (id === 'VERS' || id === 'LTRS' || [
+      'VNAM', 'VATR', 'VPRM', 'VALT', 'VDUR', 'VGAN', 'VRL1', 'VRL2',
+      'VWAV', 'VAMP', 'VFRI',
+    ].includes(id)) kept.push(bytes.slice(at, at + total))
     at += total
   }
   const json = new TextEncoder().encode('{"legacy":true}')
@@ -69,7 +72,8 @@ describe('AROS Narrator IFF resource', () => {
     expect(decoded.version).toBe(AROS_RESOURCE_VERSION)
     expect(chunkIds(encoded)).toEqual([
       'VERS', 'FVER', 'TVER', 'TSRC', 'TLIC', 'LTRS',
-      'VVER', 'VSRC', 'VLIC', 'NVOI',
+      'VVER', 'VSRC', 'VLIC', 'VNAM', 'VATR', 'VPRM', 'VALT', 'VDUR',
+      'VGAN', 'VRL1', 'VRL2', 'VWAV', 'VAMP', 'VFRI',
     ])
     expect(chunkIds(encoded)).not.toContain('META')
     expect(decoded.metadata).toEqual({
@@ -93,6 +97,14 @@ describe('AROS Narrator IFF resource', () => {
       new Array(voice.names.length - voice.params.f1.length).fill(0),
     )
     expect(decoded.voice?.paramsAlt.f1.slice(0, voice.paramsAlt.f1.length)).toEqual(voice.paramsAlt.f1)
+    expect(decoded.voice?.gain).toEqual(voice.gain)
+    const deploymentRule = ({ match, left, right, flags, replace, insertBefore, insertAfter, tests }:
+      VoiceData['rules']['allophones']['rules'][number]) =>
+      ({ match, left, right, flags, replace, insertBefore, insertAfter, tests })
+    expect(decoded.voice?.rules.allophones.rules).toEqual(voice.rules.allophones.rules.map(deploymentRule))
+    expect(decoded.voice?.rules.frames.rules).toEqual(voice.rules.frames.rules.map(deploymentRule))
+    expect(decoded.voice?.wave).toEqual(voice.wave)
+    expect(decoded.voice?.amp).toEqual(voice.amp)
     expect(decoded.voice?.fricatives).toEqual(voice.fricatives)
   })
 
@@ -123,9 +135,9 @@ describe('AROS Narrator IFF resource', () => {
     }, 'not-a-symbol')).toThrow(/symbol/)
   })
 
-  it('loads legacy tables without parsing their JSON metadata', () => {
+  it('ignores unknown JSON metadata without parsing it', () => {
     const encoded = encodeArosResource({ translator, voice, metadata })
-    const decoded = decodeArosResource(legacyResource(encoded))
+    const decoded = decodeArosResource(resourceWithUnknownJson(encoded))
     expect(decoded.metadata).toEqual({})
     expect(decoded.translator?.classes).toEqual(translator.classes)
     expect(decoded.voice?.names).toEqual(voice.names)

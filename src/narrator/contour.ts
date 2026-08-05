@@ -19,6 +19,7 @@
 
 import { TERMINATOR } from './parse.js'
 import type { Attrs } from './rewrite.js'
+import { invalidVoice } from './error.js'
 
 /** Flags this stage writes into the low nibble of the stress byte. */
 export const CONTOUR = {
@@ -60,7 +61,9 @@ export function markContour(state: ContourState, attrs: Attrs): void {
 
   // 0x19c4: clear every low nibble first. Nothing downstream wants what the
   // earlier stages left there.
-  for (let i = 0; stress[i] !== TERMINATOR; i++) stress[i] &= 0xf0
+  let clear = 0
+  for (; clear < stress.length && stress[clear] !== TERMINATOR; clear++) stress[clear] &= 0xf0
+  if (clear === stress.length) invalidVoice()
 
   // `i` is the index just read; the device's A0 and A1 are then one past it,
   // so `stress[i + 1]` is its `(A1)` and `stress[i - 1]` its `(-2,A1)`.
@@ -77,6 +80,7 @@ export function markContour(state: ContourState, attrs: Attrs): void {
   for (;;) {
     // ---------------------------------------------------------- 0x19e6
     i++
+    if (i >= phonemes.length) invalidVoice()
     if (phonemes[i] === TERMINATOR) return
     let a = attrOf(phonemes[i])
     let s = stress[i]
@@ -88,11 +92,13 @@ export function markContour(state: ContourState, attrs: Attrs): void {
       // consonant inside the span does not need marking again.
       while (!(a & ATTR.VOWEL)) {
         i++
+        if (i >= phonemes.length) invalidVoice()
         a = attrOf(phonemes[i])
         s = stress[i]
         if (s & MARK || a & ATTR.TERMINAL) {
           // 0x1a78: the span ran out before a vowel turned up — pin all three
           // flags across the last two slots and go back to the mark test.
+          if (i === 0) invalidVoice()
           stress[i - 1] |= CONTOUR.PEAK
           stress[i] |= CONTOUR.FALL | CONTOUR.END
           continue marked
@@ -105,8 +111,9 @@ export function markContour(state: ContourState, attrs: Attrs): void {
       // 0x1a2a: the fall normally starts on the phoneme after the vowel, but
       // a split phoneme and the two non-nucleus vowels push it one further.
       const after = phonemes[i + 1]
-      if (a & ATTR.SPLIT || after === LX || after === RX) stress[i + 2] |= CONTOUR.FALL
-      else stress[i + 1] |= CONTOUR.FALL
+      const fall = a & ATTR.SPLIT || after === LX || after === RX ? i + 2 : i + 1
+      if (fall >= stress.length) invalidVoice()
+      stress[fall] |= CONTOUR.FALL
 
       // 0x1a44: `end` tracks the last voiced phoneme seen, and starts on the
       // one holding the fall.
@@ -115,11 +122,13 @@ export function markContour(state: ContourState, attrs: Attrs): void {
       // ---------------------------------------------------------- 0x1a50
       for (;;) {
         i++
+        if (i >= phonemes.length) invalidVoice()
         a = attrOf(phonemes[i])
         s = stress[i]
         if (s & MARK || a & ATTR.TERMINAL) break
         if (a & ATTR.VOICED) end = i + 1
       }
+      if (end >= stress.length) invalidVoice()
       stress[end] |= CONTOUR.END
       // 0x1a76 re-enters at the mark test rather than the outer loop, so a
       // span that ends on another marked phoneme starts the next contour
@@ -203,12 +212,22 @@ export function assignPitch(
   const c = Math.floor(PERIOD_NUMERATOR / opts.pitch) & 0xffff
   /** `divu.w`: 32-bit over 16-bit, quotient in the low word. */
   const period = (v: number): number => (v === 0 ? 0xff : Math.floor(c / v) & 0xff)
+  const writable = frames.length - FRAME
+  const put = (at: number, value: number): void => {
+    if (at < 0) return
+    if (at >= writable) invalidVoice()
+    frames[at] = value
+  }
 
   if (opts.mode === 1) {
     // 0x1bca: one period everywhere, and it ignores `pitch` for the contour
     // even though `pitch` is still in `c`. This is the robot voice.
     const flat = period(MONOTONE_PITCH)
-    for (let at = PITCH_BYTE; frames[at] !== 0xff; at += FRAME) frames[at] = flat
+    for (let at = PITCH_BYTE; ; at += FRAME) {
+      if (at >= frames.length) invalidVoice()
+      if (frames[at] === 0xff) break
+      put(at, flat)
+    }
     return
   }
 
@@ -218,10 +237,11 @@ export function assignPitch(
 
   for (;;) {
     // -------------------------------------------------------------- 0x1ad2
+    if (i >= flags.length) invalidVoice()
     if (flags[i] === TERMINATOR) {
       // 0x1ada: `(-1,A3,0x100)` is where the *previous* syllable ended, and
       // it goes on the frame before the cursor — the utterance's last pitch.
-      frames[at - 1] = period(arrays.end[v - 1])
+      put(at - 1, period(arrays.end[v - 1]))
       return
     }
     const duration = flags[i] & 0x3f
@@ -241,12 +261,13 @@ export function assignPitch(
     const rise = (arrays.tail[v] & 0x70) >> 1
     v++
 
-    frames[at + PITCH_BYTE] = period(hi)
+    put(at + PITCH_BYTE, period(hi))
 
     // 0x1b32: the run to the fall starts with the peak phoneme's own length,
     // which is why the entry is into the middle of the loop.
     let span = duration * FRAME
     for (;;) {
+      if (i >= flags.length) invalidVoice()
       const d = flags[i] & 0x3f
       const fall = stress[i] & CONTOUR.FALL
       i++
@@ -261,7 +282,7 @@ export function assignPitch(
       const f = off >> 3
       off = ((f - (f >> 1)) << 3) & 0xffff
     }
-    frames[at + off - 1] = period(lo)
+    put(at + off - 1, period(lo))
 
     // 0x1b66: the middle is placed by how far the pitch has to travel on each
     // leg, not at the halfway point in time — a big drop early puts it early.
@@ -272,7 +293,7 @@ export function assignPitch(
       let atMid = Math.floor(scaled / travel) & 0xffff
       atMid = (atMid * off) & 0xffff
       atMid = ((atMid >> 8) << 3) & 0xffff
-      frames[at + atMid - 1] = period(mid)
+      put(at + atMid - 1, period(mid))
     }
 
     // 0x1b90: step back over the phoneme that carried the fall — it is the
@@ -283,13 +304,14 @@ export function assignPitch(
 
     // -------------------------------------------------------------- 0x1ba0
     for (;;) {
+      if (i >= flags.length) invalidVoice()
       const d = flags[i] & 0x3f
       const end = stress[i] & CONTOUR.END
       i++
       if (end) break
       at += d * FRAME
     }
-    frames[at - 1] = period((lo + rise) & 0xffff)
+    put(at - 1, period((lo + rise) & 0xffff))
     i--
   }
 }

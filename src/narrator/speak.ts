@@ -46,6 +46,7 @@ import { nextPhrase, pitchLoopBody, type ProsodyState } from './prosody.js'
 import { rewrite, type Attrs, type Rule } from './rewrite.js'
 import { spreadStress } from './stress.js'
 import { render } from './render.js'
+import { SpeakError } from './error.js'
 import {
   audioPeriod,
   PAL_CLOCK,
@@ -97,17 +98,7 @@ export interface Speech {
   mouths?: Uint8Array
 }
 
-/** What the device reports in `io_Error` rather than speaking. */
-export class SpeakError extends Error {
-  constructor(
-    message: string,
-    /** 1-based offset of the offending character, when the parser found one. */
-    readonly at?: number,
-  ) {
-    super(message)
-    this.name = 'SpeakError'
-  }
-}
+export { SpeakError } from './error.js'
 
 /** The eight `0x80`-byte per-syllable arrays at `A5+0x6e8`. */
 const ARRAYS = 8

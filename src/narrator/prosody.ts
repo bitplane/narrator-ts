@@ -24,6 +24,7 @@
 
 import { TERMINATOR } from './parse.js'
 import type { Attrs } from './rewrite.js'
+import { invalidVoice } from './error.js'
 
 /** Attribute bits this stage tests. */
 const ATTR = {
@@ -155,6 +156,7 @@ export function scanPhrase(state: ProsodyState, attrs: Attrs): number | null {
   counters.stresses = 0
 
   for (;;) {
+    if (p >= phonemes.length || s >= stress.length || f >= flags.length) invalidVoice()
     // ------------------------------------------------------------ 0x1f24
     const phoneme = phonemes[p++]
     let mark = stress[s++]
@@ -163,6 +165,12 @@ export function scanPhrase(state: ProsodyState, attrs: Attrs): number | null {
 
     if (phoneme === TERMINATOR) {
       // 0x1fc0: the utterance ends here.
+      if (n === 0) {
+        if (counters.stresses === 0) firstPrimary = n
+        counters.first = firstPrimary & 0xffff
+        counters.syllables = n
+        return n
+      }
       arr4[n - 1] |= SYLLABLE.LAST
       if (counters.stresses === 0) firstPrimary = n
       counters.first = firstPrimary & 0xffff
@@ -172,6 +180,7 @@ export function scanPhrase(state: ProsodyState, attrs: Attrs): number | null {
 
     const a = attrs[phoneme] ?? 0
     if (a & ATTR.BOUNDARY) {
+      if (n === 0) invalidVoice()
       // 0x1f42: a space or a pause. The syllable before it is flagged, and a
       // `.`, `?` or `,` ends the phrase outright.
       counters.boundaries = (counters.boundaries + 1) & 0xffff
@@ -199,6 +208,7 @@ export function scanPhrase(state: ProsodyState, attrs: Attrs): number | null {
       // walk forward to the first non-zero digit.
       level = mark & 0x0f
       while (level === 0) {
+        if (p >= phonemes.length || s >= stress.length || f >= flags.length) invalidVoice()
         f++
         p++
         mark = stress[s++]
@@ -218,6 +228,7 @@ export function scanPhrase(state: ProsodyState, attrs: Attrs): number | null {
     }
 
     // 0x1f9e: only the low nibble of the scaled level survives.
+    if (state.arrAt + n >= state.arr[DESCRIPTOR].length) invalidVoice()
     arr4[n] = ((level & 0x0f) | extra) & 0xff
     n++
     counters.total = (counters.total + 1) & 0xffff
@@ -256,6 +267,7 @@ export function markBoundaries(state: ProsodyState, attrs: Attrs): number {
   let n = 0 // D4 again, counted the same way
 
   for (;;) {
+    if (p >= phonemes.length || s >= stress.length || f >= flags.length) invalidVoice()
     // ------------------------------------------------------------ 0x1ff6
     const phoneme = phonemes[p++]
     const mark = stress[s++]
@@ -270,6 +282,7 @@ export function markBoundaries(state: ProsodyState, attrs: Attrs): number {
       break
     }
     if (phoneme === DASH) {
+      if (n === 0) invalidVoice()
       arr3[n - 1] |= 0x90
     } else {
       const a = attrs[phoneme] ?? 0
@@ -279,14 +292,19 @@ export function markBoundaries(state: ProsodyState, attrs: Attrs): number {
     }
 
     // 0x201e
-    if (mark & STRESS.MARK) n++
+    if (mark & STRESS.MARK) {
+      if (state.arrAt + n >= state.arr[CADENCE].length) invalidVoice()
+      n++
+    }
     if (flag & 0x20) {
+      if (n === 0) invalidVoice()
       arr3[n - 1] = 2
       continue
     }
     if (!(flag & 0x10)) continue
 
     // 0x2038: the low nibble as a signed nibble.
+    if (n === 0) invalidVoice()
     const v = ((arr3[n - 1] & 0x0f) << 4) >> 4
     if (v === 0 || v <= -2) arr3[n - 1] |= 0x0e
   }
@@ -432,6 +450,7 @@ export function nextPhrase(state: ProsodyState, attrs: Attrs): boolean {
   if (found === 0) return false
 
   const syllables = markBoundaries(state, attrs)
+  if (syllables <= 0 || state.arrAt + syllables > state.arr[0].length) invalidVoice()
   markVoiced(state, syllables)
   markPunctuation(state, syllables)
   markCadence(state, syllables)
@@ -1106,6 +1125,7 @@ export function coarticulatePitch(state: ProsodyState, attrs: Attrs): void {
     // 0x287e: back to the phoneme the spreader marked as this syllable's
     // start. `tst.b -(A2)` and `bpl`, so it is looking for bit 7.
     do {
+      if (p <= 0 || s <= 0) invalidVoice()
       p--
       s--
     } while (!(stress[s] & STRESS.MARK))
@@ -1139,11 +1159,14 @@ export function coarticulatePitch(state: ProsodyState, attrs: Attrs): void {
     } else {
       // 0x292a: forward past the syllable's own stress digit first.
       let k = 0
-      while ((stress[s + k++] & 0x0f) === 0);
+      while (s + k < stress.length && (stress[s + k] & 0x0f) === 0) k++
+      if (s + k >= stress.length) invalidVoice()
+      k++
 
       // 0x293c: then on to the first phoneme that settles it, stepping over
       // voiced consonants on the way.
       for (;;) {
+        if (p + k >= phonemes.length) invalidVoice()
         const next = phonemes[p + k]
         if (next === GLOTTAL) {
           by = 0x1a
