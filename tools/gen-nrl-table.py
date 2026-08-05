@@ -130,7 +130,7 @@ def deblank(left, match, right):
     return None if not parts[1] else tuple(parts)
 
 
-def build(reference, verbatim=False):
+def build(reference, pronunciations=None, verbatim=False):
     doc = json.loads(Path(reference).read_text())
     buckets, dropped, deblanked, swapped = [], [], [], []
     for name in BUCKET_NAME:
@@ -151,6 +151,27 @@ def build(reference, verbatim=False):
                 swapped.append((name, raw, '%s[%s]%s' % fixed))
             rules.append([*fixed, nrl_diff.nrl_output(body), NO_STRESS])
         buckets.append(rules)
+
+    if pronunciations is not None:
+        overlay = json.loads(Path(pronunciations).read_text())
+        for rule in reversed(overlay.get('rules', [])):
+            if (len(rule) != 5 or not rule[1] or
+                    not rule[1][0].isalpha() or
+                    not rule[1][0].isupper() or
+                    not rule[3] or len(rule[4]) != 1):
+                raise ValueError(f'invalid free pronunciation rule: {rule!r}')
+            bucket = ord(rule[1][0]) - ord('A')
+            buckets[bucket].insert(0, rule)
+        # Insert prefixes first so exact words, inserted afterwards at the
+        # same bucket head, take precedence when both can match.
+        for kind, right in (('prefixes', ''), ('words', ' ')):
+            for word, output in overlay.get(kind, {}).items():
+                if not word.isalpha() or not word.isupper() or not output:
+                    raise ValueError(
+                        f'invalid free pronunciation: {word!r}: {output!r}')
+                bucket = ord(word[0]) - ord('A')
+                buckets[bucket].insert(
+                    0, [' ', word, right, output, NO_STRESS])
 
     prov = doc['_provenance']
     table = {
@@ -190,6 +211,8 @@ def check(table, amiga_path):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--reference', default=ROOT / 'reference' / 'nrl-7948.json')
+    ap.add_argument('--pronunciations',
+                    default=ROOT / 'reference' / 'free-pronunciations.json')
     ap.add_argument('-o', '--out', default=ROOT / 'reference' / 'nrl-table.json')
     ap.add_argument('--check', metavar='AMIGA_TABLE',
                     help='also diff the derived class table against a build')
@@ -197,7 +220,8 @@ def main():
                     help='keep `^:` left contexts as transcribed (see above)')
     args = ap.parse_args()
 
-    table, dropped, deblanked, swapped = build(args.reference, args.verbatim)
+    table, dropped, deblanked, swapped = build(
+        args.reference, args.pronunciations, args.verbatim)
     Path(args.out).write_text(json.dumps(table, separators=(',', ':')) + '\n')
     n = sum(len(b) for b in table['buckets'])
     print(f'{n} rules across {len(table["buckets"])} buckets -> {args.out}')

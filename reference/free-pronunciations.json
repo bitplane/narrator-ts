@@ -1,0 +1,26 @@
+{
+  "words": {
+    "TODAY": "TUWDEY3",
+    "ACHE": "EY3K",
+    "HEARD": "/HER4D",
+    "WANTED": "WAA4NTIXD"
+  },
+  "prefixes": {
+    "WANT": "WAA4NT",
+    "BREAK": "BREY3K",
+    "ROLL": "ROH2L",
+    "SEARCH": "SEH4RCH",
+    "FRIEND": "FREH3ND",
+    "CITY": "SIH4TIY",
+    "WINDOW": "WIH3NDOW"
+  },
+  "rules": [
+    ["", "CHILDREN", "", "CHIH4LDREHN", "`"],
+    ["", "FLIES", "", "FLAY4Z", "`"],
+    ["SH", "ES", " ", "IHZ", "`"],
+    ["CH", "ES", " ", "IHZ", "`"],
+    ["S", "ES", " ", "IHZ", "`"],
+    ["X", "ES", " ", "IHZ", "`"],
+    ["Z", "ES", " ", "IHZ", "`"]
+  ]
+}

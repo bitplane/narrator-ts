@@ -7,7 +7,8 @@ import { translate } from './translate.js'
 import { CLASS, type TranslatorTables } from './types.js'
 
 /**
- * The free letter-to-sound table, built from NRL Report 7948 alone.
+ * The free letter-to-sound table, built from NRL Report 7948 and curated
+ * pronunciation rules.
  *
  * Unlike translate.test.ts these tests need no build products: both the table
  * and the report it comes from are checked in, because the report is a work of
@@ -27,6 +28,17 @@ const NRL = JSON.parse(readFileSync('reference/nrl-7948.json', 'utf8')) as {
   rules: Record<string, string[]>
 }
 
+const pronunciations = JSON.parse(
+  readFileSync('reference/free-pronunciations.json', 'utf8'),
+) as {
+  words: Record<string, string>
+  prefixes: Record<string, string>
+  rules: Array<[string, string, string, string, string]>
+}
+
+const curatedCount = Object.keys(pronunciations.words).length +
+  Object.keys(pronunciations.prefixes).length + pronunciations.rules.length
+
 const all = table.buckets.flat()
 
 describe('the NRL table', () => {
@@ -40,11 +52,33 @@ describe('the NRL table', () => {
     // gone. See tools/gen-nrl-table.py.
     const published = Object.values(NRL.rules).reduce((n, r) => n + r.length, 0)
     expect(published).toBe(329)
-    expect(all).toHaveLength(published - 1)
+    expect(all).toHaveLength(published - 1 + curatedCount)
+  })
+
+  it('prepends the curated pronunciation rules', () => {
+    for (const [word, output] of Object.entries(pronunciations.words)) {
+      const bucket = table.buckets[word.charCodeAt(0) - 65]!
+      expect(bucket).toContainEqual([' ', word, ' ', output, '`'])
+    }
+    for (const [prefix, output] of Object.entries(pronunciations.prefixes)) {
+      const bucket = table.buckets[prefix.charCodeAt(0) - 65]!
+      expect(bucket).toContainEqual([' ', prefix, '', output, '`'])
+    }
+    for (const rule of pronunciations.rules) {
+      const bucket = table.buckets[rule[1].charCodeAt(0) - 65]!
+      expect(bucket).toContainEqual(rule)
+    }
   })
 
   it('carries no stress marks, because NRL has no notion of stress', () => {
-    for (const [, , , out] of all) expect(out).not.toMatch(/[1-9]/)
+    const curated = new Set([
+      ...Object.keys(pronunciations.words),
+      ...Object.keys(pronunciations.prefixes),
+      ...pronunciations.rules.map((rule) => rule[1]),
+    ])
+    for (const [, match, , out] of all) {
+      if (!curated.has(match)) expect(out).not.toMatch(/[1-9]/)
+    }
     // Belt and braces: every rule also carries the terminator that tells the
     // matcher its output is ineligible for one.
     for (const [, , , , term] of all) expect(term).toBe('`')
