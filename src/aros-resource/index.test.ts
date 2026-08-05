@@ -108,6 +108,19 @@ describe('AROS Narrator IFF resource', () => {
     expect(decoded.voice?.fricatives).toEqual(voice.fricatives)
   })
 
+  it('exports only the 4096-byte waveform table used by the renderer', () => {
+    const extended = { ...voice, wave: [...voice.wave, 1, 2, 3] }
+    const decoded = decodeArosResource(encodeArosResource({
+      voice: extended,
+      metadata: { generator: metadata.generator, voiceLicense: metadata.voiceLicense },
+    }))
+    expect(decoded.voice?.wave).toEqual(voice.wave.slice(0, 4096))
+    expect(() => encodeArosResource({
+      voice: { ...voice, wave: voice.wave.slice(0, 4095) },
+      metadata: { generator: metadata.generator, voiceLicense: metadata.voiceLicense },
+    })).toThrow(/wave table/)
+  })
+
   it('rejects truncated resources', () => {
     const encoded = encodeArosResource({
       translator,

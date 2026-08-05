@@ -188,6 +188,7 @@ function padded(values: readonly number[] | undefined, count: number): number[] 
 function voiceChunks(data: VoiceData): Uint8Array[] {
   const count = data.names.length
   if (count === 0 || count > 0xffff) throw new RangeError('invalid voice name count')
+  if (data.wave.length < 4096) throw new RangeError('wave table is shorter than 4096 bytes')
   const names = new Writer(); names.u16(count)
   for (const name of data.names) {
     if (name.length > 2) throw new RangeError(`phoneme name is longer than two bytes: ${name}`)
@@ -222,7 +223,7 @@ function voiceChunks(data: VoiceData): Uint8Array[] {
     chunk('VPRM', params.finish()), chunk('VALT', alt.finish()),
     chunk('VDUR', durations.finish()), chunk('VGAN', Uint8Array.from(data.gain)),
     chunk('VRL1', rules(data.rules.allophones)), chunk('VRL2', rules(data.rules.frames)),
-    chunk('VWAV', Uint8Array.from(data.wave)), chunk('VAMP', Uint8Array.from(data.amp)),
+    chunk('VWAV', Uint8Array.from(data.wave.slice(0, 4096))), chunk('VAMP', Uint8Array.from(data.amp)),
     chunk('VFRI', fricatives.finish()),
   ]
 }

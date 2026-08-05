@@ -21,8 +21,13 @@ const translatorArgument = value('--translator')
 const voiceArgument = value('--voice')
 const translatorPath = translatorArgument ?? 'reference/nrl-table.json'
 const voicePath = voiceArgument ?? 'reference/voice-free.json'
-const translator = JSON.parse(readFileSync(translatorPath, 'utf8')) as TranslatorTables
+let translator = JSON.parse(readFileSync(translatorPath, 'utf8')) as TranslatorTables
 const voice = JSON.parse(readFileSync(voicePath, 'utf8')) as VoiceData
+if (translatorArgument === undefined && translator.vowels.length === 0) {
+  translator = { ...translator, vowels: [
+    'IH', 'EH', 'AA', 'AE', 'IY', 'AO', 'AH', 'ER', 'OH', 'EY', 'AY', 'OY', 'AW', 'OW', 'UW',
+  ] }
+}
 const packageInfo = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
   name: string
   version: string

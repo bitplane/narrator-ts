@@ -86,7 +86,7 @@ SLOTS = len(NAMES)   # 112, including the ten stress digits past the end
 # and their glides run to /I/ or /U/ position.
 VOWELS = {
     'IY': (270, 2290, 3010), 'IH': (390, 1990, 2550), 'EH': (530, 1840, 2480),
-    'AE': (660, 1720, 2410), 'AA': (730, 1090, 2440), 'AH': (640, 1190, 2390),
+    'AE': (660, 1720, 2410), 'AA': (730, 1090, 2440), 'AH': (580, 1250, 2390),
     'AO': (570, 840, 2410), 'UH': (440, 1020, 2240), 'UW': (300, 870, 2240),
     'ER': (490, 1350, 1690),
     'AX': (500, 1500, 2500), 'IX': (440, 1750, 2500), 'UX': (300, 1600, 2200),
@@ -628,6 +628,8 @@ def durations():
             base += 3
         if n in HIGH_VOWELS:
             base -= 3
+        if n == 'AY':
+            base += 6
         if 'voiced' in feats and 'fricative' in feats:
             base -= 3         # voiced fricatives are shorter
         # A schwa is a reduced vowel by definition -- it is what a vowel
@@ -681,7 +683,9 @@ def blending():
                 rank[i], weight[i] = r, WEIGHT[cls]
                 break
         # A glide is nothing but transition; a stop is nothing but hold.
-        if 'glide' in feats or 'liquid' in feats:
+        if 'diphthong' in feats:
+            weight[i], tin[i], tout[i] = 16, 5, 5
+        elif 'glide' in feats or 'liquid' in feats:
             tin[i], tout[i] = 5, 3
         elif 'vowel' in feats:
             tin[i], tout[i] = 4, 2
@@ -957,6 +961,8 @@ def allophone_rules():
     # English and the two are far enough apart acoustically to matter: LX has
     # its own low F2 locus.
     out.append(_rule(_index('L'), replace=_index('LX'),
+                     on_right=(('vowel', False),)))
+    out.append(_rule(_index('R'), replace=_index('RX'),
                      on_right=(('vowel', False),)))
     return out
 
